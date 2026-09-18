@@ -1,0 +1,6 @@
+dist/
+node_modules/
+.bb/
+.metamcp/
+.DS_Store
+*.log
