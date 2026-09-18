@@ -475,6 +475,23 @@ export const EN: Record<string, string> = {
   "активны": "active",
   "Ошибки: {0}": "Errors: {0}",
 
+  "Каталог: {0}, автосинхронизация {1}": "Catalogue: {0}, hourly sweep {1}",
+  "Скилл {0}: {1}": "Skill {0}: {1}",
+  "не отвечает: {0}": "no answer: {0}",
+  "{0} в {1}": "{0} in {1}",
+  "Автосинхронизация {0}": "Hourly sweep {0}",
+  "Предустановленная модель: {0} (BB: {1}, хосты: {2})": "Preselected model: {0} (BB: {1}, hosts: {2})",
+  "{0}: {1} в {2}": "{0}: {1} in {2}",
+  "ещё {0}": "{0} more",
+  "нет провайдера BB": "no BB provider",
+  "файл": "file",
+  "файла": "files",
+  "файлов": "files",
+  "заменено каноном: канон новее": "replaced by the canon: the canon is newer",
+  "заменено каноном: нет в доме BB": "replaced by the canon: missing from the BB home",
+  "убрано из дома: нет в каноне": "removed from the home: not in the canon",
+  "удалён в bb: удалён в BB": "deleted in BB",
+
   // --- code sample placeholders ------------------------------------------
   "имя-сервера": "server-name",
   "/путь/к/server.js": "/path/to/server.js",

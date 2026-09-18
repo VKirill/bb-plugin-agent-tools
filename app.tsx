@@ -201,7 +201,7 @@ function toggleNotice(
   result: { changed: number; skipped: number; errors: string[] },
 ): string {
   const verb = enabled ? t("включено") : t("выключено");
-  let message = `${name}: ${verb} в ${plural(result.changed, ["конфиге", "конфигах", "конфигах"])}`;
+  let message = tp("{0}: {1} в {2}", name, verb, plural(result.changed, ["конфиге", "конфигах", "конфигах"]));
   if (result.skipped > 0)
     message += tp(", пропущено {0} (формат без флага выключения)", result.skipped);
   if (result.errors.length > 0) message += `\n${result.errors.join("\n")}`;
@@ -579,11 +579,11 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                   {row.hosts.map((item) => (
                     <TableCell key={item.hostId}>
                       {item.state === "same" ? (
-                        <span className="text-emerald-600" title={t("есть, содержимое как у всех")}>есть</span>
+                        <span className="text-emerald-600" title={t("есть, содержимое как у всех")}>{t("есть")}</span>
                       ) : item.state === "differs" ? (
-                        <span className="text-amber-600" title={t("есть, но содержимое отличается")}>отличается</span>
+                        <span className="text-amber-600" title={t("есть, но содержимое отличается")}>{t("отличается")}</span>
                       ) : (
-                        <span className="text-destructive" title={t("на этой машине нет")}>нет</span>
+                        <span className="text-destructive" title={t("на этой машине нет")}>{t("нет")}</span>
                       )}
                     </TableCell>
                   ))}
@@ -1634,7 +1634,7 @@ function PendingTable({
           className="mt-1.5 h-auto px-1.5 py-0.5 text-xs text-muted-foreground"
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? t("свернуть") : `ещё ${hidden}`}
+          {expanded ? t("свернуть") : tp("ещё {0}", hidden)}
         </Button>
       ) : null}
     </>
@@ -2852,7 +2852,7 @@ function CatalogPage() {
       });
       setNotice(
         result.ok
-          ? `Предустановленная модель: ${modelId} (BB: ${result.bbUpdated ? t("обновлено") : t("пропущено")}, хосты: ${result.updatedHosts})`
+          ? tp("Предустановленная модель: {0} (BB: {1}, хосты: {2})", modelId, result.bbUpdated ? t("обновлено") : t("пропущено"), result.updatedHosts)
           : t("Не удалось установить модель"),
       );
       return result.overview;
@@ -3210,7 +3210,7 @@ function CatalogPage() {
                     <Switch
                       checked={data.autoSync}
                       disabled={busy}
-                      aria-label={`Автосинхронизация ${data.autoSync ? t("включена") : t("выключена")}`}
+                      aria-label={tp("Автосинхронизация {0}", data.autoSync ? t("включена") : t("выключена"))}
                       onCheckedChange={(enabled) =>
                         act(() => rpc.call("set_auto_sync", { enabled }))
                       }
