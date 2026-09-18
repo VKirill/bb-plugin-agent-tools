@@ -35,7 +35,7 @@ import {
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
 import { computeSkillRows, locationPath } from "./skills";
-import { setLang, setDictionary, t, tp, isLang, type Lang } from "./i18n";
+import { setLang, setDictionary, t, tp, plural, isLang, type Lang } from "./i18n";
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
@@ -1905,16 +1905,6 @@ export default async function plugin(bb: BbPluginApi) {
     t("  bb tools skills [--host <id>]            Скиллы вне канона"),
     t("  bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]  Скилл за канон"),
   ].join("\n");
-
-  /** Русские склонения: 1 сервер, 2 сервера, 5 серверов. */
-  function plural(count: number, forms: [string, string, string]): string {
-    const tens = count % 100;
-    const ones = count % 10;
-    if (tens > 10 && tens < 20) return `${count} ${forms[2]}`;
-    if (ones === 1) return `${count} ${forms[0]}`;
-    if (ones >= 2 && ones <= 4) return `${count} ${forms[1]}`;
-    return `${count} ${forms[2]}`;
-  }
 
   function renderStatus(current: Overview): string {
     const lines: string[] = [];
