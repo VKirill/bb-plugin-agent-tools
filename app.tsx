@@ -30,6 +30,10 @@ import {
   type SkillRow as SkillRowT,
 } from "./skills";
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
+import { t, tp, plural, setLang, setDictionary, type Lang } from "./i18n";
+import { EN } from "./i18n.en";
+
+setDictionary(EN);
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +85,9 @@ function useOverview() {
   }, []);
   const refetch = useCallback(() => {
     rpc.call("overview", null).then((result) => {
+      // Язык приходит вместе с данными: t() в дочерних компонентах читает его
+      // из модуля, поэтому ставим до первой отрисовки.
+      setLang(result.lang);
       setData(result);
       setError(null);
     }, report);
@@ -93,7 +100,9 @@ function useOverview() {
     async (run: () => Promise<Overview>) => {
       setBusy(true);
       try {
-        setData(await run());
+        const next = await run();
+        setLang(next.lang);
+        setData(next);
         setError(null);
       } catch (cause) {
         report(cause);
@@ -107,23 +116,14 @@ function useOverview() {
 }
 
 /** Русские склонения: 1 сервер, 2 сервера, 5 серверов. */
-function plural(count: number, forms: [string, string, string]): string {
-  const tens = count % 100;
-  const ones = count % 10;
-  if (tens > 10 && tens < 20) return `${count} ${forms[2]}`;
-  if (ones === 1) return `${count} ${forms[0]}`;
-  if (ones >= 2 && ones <= 4) return `${count} ${forms[1]}`;
-  return `${count} ${forms[2]}`;
-}
-
 function relative(at: number | null): string {
-  if (at === null) return "никогда";
+  if (at === null) return t("никогда");
   const minutes = Math.round((Date.now() - at) / 60_000);
-  if (minutes < 1) return "только что";
-  if (minutes < 60) return `${minutes} мин назад`;
+  if (minutes < 1) return t("только что");
+  if (minutes < 60) return tp("{0} мин назад", minutes);
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} ч назад`;
-  return `${Math.round(hours / 24)} дн назад`;
+  if (hours < 24) return tp("{0} ч назад", hours);
+  return tp("{0} дн назад", Math.round(hours / 24));
 }
 
 function describe(server: {
@@ -172,7 +172,7 @@ function pendingWhereTitle(item: Pending): string {
   return item.occurrences
     .map((occurrence) => {
       const line = `${occurrence.hostName} → ${agentLabel(occurrence.kind)}`;
-      return occurrence.disabled ? `${line} (выключен)` : line;
+      return occurrence.disabled ? tp("{0} (выключен)", line) : line;
     })
     .join("\n");
 }
@@ -200,10 +200,10 @@ function toggleNotice(
   enabled: boolean,
   result: { changed: number; skipped: number; errors: string[] },
 ): string {
-  const verb = enabled ? "включено" : "выключено";
+  const verb = enabled ? t("включено") : t("выключено");
   let message = `${name}: ${verb} в ${plural(result.changed, ["конфиге", "конфигах", "конфигах"])}`;
   if (result.skipped > 0)
-    message += `, пропущено ${result.skipped} (формат без флага выключения)`;
+    message += tp(", пропущено {0} (формат без флага выключения)", result.skipped);
   if (result.errors.length > 0) message += `\n${result.errors.join("\n")}`;
   return message;
 }
@@ -229,11 +229,11 @@ function metamcpStdioServers(data: Overview, hostId: string): McpServer[] {
 }
 
 const STATE_LABEL: Record<CellState, string> = {
-  present: "есть",
-  partial: "есть не во всех CLI",
-  missing: "не хватает",
-  different: "отличается",
-  "n/a": "агент не управляется",
+  present: t("есть"),
+  partial: t("есть не во всех CLI"),
+  missing: t("не хватает"),
+  different: t("отличается"),
+  "n/a": t("агент не управляется"),
 };
 
 const STATE_COLOR: Record<CellState, string> = {
@@ -258,11 +258,11 @@ function StateDot({ state }: { state: CellState }) {
 /** Легенда над матрицей каталога — цвет точки дополнен словом, а не заменяет его. */
 function StateLegend() {
   const items: Array<{ state: CellState; label: string }> = [
-    { state: "present", label: "есть" },
-    { state: "partial", label: "есть не везде" },
-    { state: "different", label: "отличается" },
-    { state: "missing", label: "не хватает" },
-    { state: "n/a", label: "не управляется" },
+    { state: "present", label: t("есть") },
+    { state: "partial", label: t("есть не везде") },
+    { state: "different", label: t("отличается") },
+    { state: "missing", label: t("не хватает") },
+    { state: "n/a", label: t("не управляется") },
   ];
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -280,9 +280,9 @@ function StateLegend() {
 type EnabledState = "enabled" | "disabled" | "mixed";
 
 const ENABLED_LABEL: Record<EnabledState, string> = {
-  enabled: "включён в конфиге",
-  disabled: "выключен в конфиге",
-  mixed: "включён не везде",
+  enabled: t("включён в конфиге"),
+  disabled: t("выключен в конфиге"),
+  mixed: t("включён не везде"),
 };
 
 const ENABLED_COLOR: Record<EnabledState, string> = {
@@ -317,11 +317,11 @@ function EnabledLegend() {
     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <EnabledDot state="enabled" />
-        включён в конфиге
+        {t("включён в конфиге")}
       </span>
       <span className="inline-flex items-center gap-1.5">
         <EnabledDot state="disabled" />
-        выключен в конфиге
+        {t("выключен в конфиге")}
       </span>
     </div>
   );
@@ -334,22 +334,22 @@ function EnabledLegend() {
  * безопасно), bg-border — трогать не нужно.
  */
 const SKILL_STATE_LABEL: Record<string, string> = {
-  "only-here": "новый — не в каноне",
-  diverged: "расходится с каноном",
-  copy: "копия канона",
-  "stray-link": "лишняя ссылка",
-  "bb-registry": "дубль реестра BB",
-  "canonical-source": "источник канона",
+  "only-here": t("новый — не в каноне"),
+  diverged: t("расходится с каноном"),
+  copy: t("копия канона"),
+  "stray-link": t("лишняя ссылка"),
+  "bb-registry": t("дубль реестра BB"),
+  "canonical-source": t("источник канона"),
 };
 
 const SKILL_STATE_HINT: Record<string, string> = {
-  "only-here": "в каноне такого скилла нет — перенести",
-  diverged: "содержимое папки отличается от канона — решить, кто прав",
-  copy: "содержимое совпадает с каноном — дубликат",
-  "stray-link": "ссылка в папке, которую мы не используем",
+  "only-here": t("в каноне такого скилла нет — перенести"),
+  diverged: t("содержимое папки отличается от канона — решить, кто прав"),
+  copy: t("содержимое совпадает с каноном — дубликат"),
+  "stray-link": t("ссылка в папке, которую мы не используем"),
   "bb-registry":
-    "ссылка в ~/.bb/skills — BB подставляет этот скилл в свои сессии сам, поэтому внутри BB он виден дважды; нужна только для запуска CLI вне BB",
-  "canonical-source": "реальное хранилище, на которое ссылается канон",
+    t("ссылка в ~/.bb/skills — BB подставляет этот скилл в свои сессии сам, поэтому внутри BB он виден дважды; нужна только для запуска CLI вне BB"),
+  "canonical-source": t("реальное хранилище, на которое ссылается канон"),
 };
 
 const SKILL_STATE_COLOR: Record<string, string> = {
@@ -396,15 +396,15 @@ function SkillStateLegend() {
 type SkillFilterKey = "all" | "copy" | "new" | "diverged" | "stray" | "bbdup";
 
 const SKILL_FILTERS: Array<{ key: SkillFilterKey; label: string; hint: string }> = [
-  { key: "all", label: "Все", hint: "Все скиллы вне канона ~/.agents/skills" },
-  { key: "copy", label: "Копии", hint: "Содержимое совпадает с каноном — дубликаты" },
-  { key: "new", label: "Новые", hint: "В каноне такого скилла нет" },
-  { key: "diverged", label: "Расходятся", hint: "Содержимое отличается от канона" },
-  { key: "stray", label: "Лишние ссылки", hint: "Ссылки в папках, которые мы не используем" },
+  { key: "all", label: t("Все"), hint: t("Все скиллы вне канона ~/.agents/skills") },
+  { key: "copy", label: t("Копии"), hint: t("Содержимое совпадает с каноном — дубликаты") },
+  { key: "new", label: t("Новые"), hint: t("В каноне такого скилла нет") },
+  { key: "diverged", label: t("Расходятся"), hint: t("Содержимое отличается от канона") },
+  { key: "stray", label: t("Лишние ссылки"), hint: t("Ссылки в папках, которые мы не используем") },
   {
     key: "bbdup",
-    label: "Дубли BB",
-    hint: "Ссылки в ~/.bb/skills: внутри BB скилл виден дважды, вне BB ссылка нужна — решение по каждой строке за тобой",
+    label: t("Дубли BB"),
+    hint: t("Ссылки в ~/.bb/skills: внутри BB скилл виден дважды, вне BB ссылка нужна — решение по каждой строке за тобой"),
   },
 ];
 
@@ -511,22 +511,22 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
 
   if (rows.length === 0) {
     return (
-      <Section title="Канон" count={0}>
+      <Section title={t("Канон")} count={0}>
         <p className="text-sm text-muted-foreground">
-          Канон пуст или машины ещё не просканированы.
+          {t("Канон пуст или машины ещё не просканированы.")}
         </p>
       </Section>
     );
   }
 
   return (
-    <Section title="Канон ~/.agents/skills" count={rows.length}>
+    <Section title={t("Канон ~/.agents/skills")} count={rows.length}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {([
-          ["all", "Все"],
-          ["gaps", "Не на всех машинах"],
-          ["differs", "Расходятся"],
-          ["plugin", "Отдаёт плагин"],
+          ["all", t("Все")],
+          ["gaps", t("Не на всех машинах")],
+          ["differs", t("Расходятся")],
+          ["plugin", t("Отдаёт плагин")],
         ] as const).map(([key, label]) => (
           <Button
             key={key}
@@ -541,28 +541,28 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Поиск по имени"
+          placeholder={t("Поиск по имени")}
           className="h-8 w-52"
         />
       </div>
       {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {filter === "gaps"
-            ? "Набор навыков одинаковый на всех машинах."
+            ? t("Набор навыков одинаковый на всех машинах.")
             : filter === "differs"
-              ? "Расхождений между машинами нет."
-              : "Ничего не нашлось."}
+              ? t("Расхождений между машинами нет.")
+              : t("Ничего не нашлось.")}
         </p>
       ) : (
         <div className="max-h-[32rem] overflow-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Скилл</TableHead>
+                <TableHead>{t("Скилл")}</TableHead>
                 {hosts.map((host) => (
                   <TableHead key={host.hostId} className="whitespace-nowrap">{host.hostName}</TableHead>
                 ))}
-                <TableHead>Разложен в дома</TableHead>
+                <TableHead>{t("Разложен в дома")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -572,18 +572,18 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                     {row.name}
                     {row.fromPlugin ? (
                       <Badge variant="outline" className="ml-2 py-0 font-normal text-muted-foreground">
-                        плагин
+                        {t("плагин")}
                       </Badge>
                     ) : null}
                   </TableCell>
                   {row.hosts.map((item) => (
                     <TableCell key={item.hostId}>
                       {item.state === "same" ? (
-                        <span className="text-emerald-600" title="есть, содержимое как у всех">есть</span>
+                        <span className="text-emerald-600" title={t("есть, содержимое как у всех")}>есть</span>
                       ) : item.state === "differs" ? (
-                        <span className="text-amber-600" title="есть, но содержимое отличается">отличается</span>
+                        <span className="text-amber-600" title={t("есть, но содержимое отличается")}>отличается</span>
                       ) : (
-                        <span className="text-destructive" title="на этой машине нет">нет</span>
+                        <span className="text-destructive" title={t("на этой машине нет")}>нет</span>
                       )}
                     </TableCell>
                   ))}
@@ -598,7 +598,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                         ? []
                         : lists.reduce((acc, list) => acc.filter((id) => list.includes(id)));
                       return homes.length === 0
-                        ? "только канон"
+                        ? t("только канон")
                         : [...homes].sort().map((id) => locationPath(id)).join(", ");
                     })()}
                   </TableCell>
@@ -620,9 +620,9 @@ function backupWhen(at: string): string {
 }
 
 function backupSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+  if (bytes < 1024) return tp("{0} Б", bytes);
+  if (bytes < 1024 * 1024) return tp("{0} КБ", Math.round(bytes / 1024));
+  return tp("{0} МБ", (bytes / 1024 / 1024).toFixed(1));
 }
 
 /**
@@ -657,45 +657,42 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
   const uniqueCount = (rows ?? []).filter((row) => row.unique).length;
 
   if (rows === null) {
-    return <p className="mt-4 text-sm text-muted-foreground">Читаем архив на машинах…</p>;
+    return <p className="mt-4 text-sm text-muted-foreground">{t("Читаем архив на машинах…")}</p>;
   }
 
   return (
     <div className="mt-4">
       <p className="mb-3 max-w-3xl text-xs text-muted-foreground">
-        Снимок снимается перед каждой заменой и удалением скилла: правилами вкладки
-        «Скиллы», раскаткой канона и приехавшим по синку удалением. «Уникальная» —
-        такого содержимого больше нет ни в каноне, ни в других снимках.
-        Восстановление кладёт версию в канон, а то, что там было, уходит в архив.
+        {t("Снимок снимается перед каждой заменой и удалением скилла: правилами вкладки «Скиллы», раскаткой канона и приехавшим по синку удалением. «Уникальная» — такого содержимого больше нет ни в каноне, ни в других снимках. Восстановление кладёт версию в канон, а то, что там было, уходит в архив.")}
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button size="sm" variant={onlyUnique ? "default" : "outline"} onClick={() => setOnlyUnique((value) => !value)}>
-          Только уникальные · {uniqueCount}
+          {t("Только уникальные")} · {uniqueCount}
         </Button>
         <Button size="sm" variant="ghost" onClick={load} disabled={busy}>
-          Обновить
+          {t("Обновить")}
         </Button>
       </div>
       {error === null ? null : (
-        <p role="alert" className="mb-3 whitespace-pre-wrap text-sm text-destructive">{error}</p>
+        <p role="alert" className="mb-3 whitespace-pre-wrap text-sm text-destructive">{t(error)}</p>
       )}
       {notice === null ? null : (
-        <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{notice}</p>
+        <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{t(notice)}</p>
       )}
       {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {rows.length === 0 ? "Архив пуст: ничего не заменяли и не удаляли." : "Уникальных снимков нет — всё это уже есть в каноне."}
+          {rows.length === 0 ? t("Архив пуст: ничего не заменяли и не удаляли.") : t("Уникальных снимков нет — всё это уже есть в каноне.")}
         </p>
       ) : (
         <div className="overflow-hidden rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Скилл</TableHead>
-                <TableHead>Когда</TableHead>
-                <TableHead>Машина</TableHead>
-                <TableHead>Почему снят</TableHead>
-                <TableHead className="text-right">Размер</TableHead>
+                <TableHead>{t("Скилл")}</TableHead>
+                <TableHead>{t("Когда")}</TableHead>
+                <TableHead>{t("Машина")}</TableHead>
+                <TableHead>{t("Почему снят")}</TableHead>
+                <TableHead className="text-right">{t("Размер")}</TableHead>
                 <TableHead className="w-40" />
               </TableRow>
             </TableHeader>
@@ -705,14 +702,14 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
                   <TableCell className="font-medium">
                     {row.name}
                     {row.unique ? (
-                      <Badge variant="outline" className="ml-2 py-0 font-normal text-amber-600">уникальная</Badge>
+                      <Badge variant="outline" className="ml-2 py-0 font-normal text-amber-600">{t("уникальная")}</Badge>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{backupWhen(row.at)}</TableCell>
                   <TableCell className="text-muted-foreground">{row.hostName}</TableCell>
                   <TableCell className="text-muted-foreground">{row.reason}</TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {row.files} ф · {backupSize(row.bytes)}
+                    {row.files} {t("ф")} · {backupSize(row.bytes)}
                   </TableCell>
                   <TableCell className="text-right">
                     {confirming === `${row.hostId}:${row.id}` ? (
@@ -724,7 +721,7 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
                             setBusy(true);
                             rpc.call("skills_backup_restore", { hostId: row.hostId, id: row.id }).then(
                               (result) => {
-                                setNotice(result.message ?? `${row.name}: восстановлен`);
+                                setNotice(result.message ?? tp("{0}: восстановлен", row.name));
                                 setConfirming(null);
                                 setBusy(false);
                                 load();
@@ -736,10 +733,10 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
                             );
                           }}
                         >
-                          Вернуть в канон
+                          {t("Вернуть в канон")}
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
-                          Отмена
+                          {t("Отмена")}
                         </Button>
                       </div>
                     ) : (
@@ -749,7 +746,7 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
                         disabled={busy}
                         onClick={() => setConfirming(`${row.hostId}:${row.id}`)}
                       >
-                        Восстановить
+                        {t("Восстановить")}
                       </Button>
                     )}
                   </TableCell>
@@ -804,7 +801,7 @@ function DeviceList({
   return (
     <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-border/60 p-3 md:block">
       <h2 className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Устройства
+        {t("Устройства")}
       </h2>
       <button
         type="button"
@@ -816,7 +813,7 @@ function DeviceList({
             : "border-transparent text-muted-foreground",
         )}
       >
-        Все машины
+        {t("Все машины")}
         <span className="ml-2 text-xs text-muted-foreground">
           {data.hosts.length}
         </span>
@@ -862,7 +859,7 @@ function DeviceList({
             <span className="mt-0.5 block truncate pl-6 text-xs text-muted-foreground">
               {machine.status === "connected"
                 ? `${plural(agents, ["CLI", "CLI", "CLI"])} · ${relative(machine.scannedAt)}`
-                : "не на связи"}
+                : t("не на связи")}
             </span>
           </button>
         );
@@ -874,7 +871,7 @@ function DeviceList({
       ) ? null : (
         <>
           <h2 className="mt-4 px-2 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Шлюзы
+            {t("Шлюзы")}
           </h2>
           {data.hosts.map((machine) => {
             const children = metamcpStdioServers(data, machine.hostId);
@@ -916,7 +913,7 @@ function DeviceList({
                           <ul className="space-y-0.5 pl-4">
                             {remote.error !== null ? (
                               <li className="text-muted-foreground">
-                                ошибка: {remote.error}
+                                {t("ошибка")}: {remote.error}
                               </li>
                             ) : (
                               remote.servers.map((inner) => (
@@ -975,8 +972,7 @@ function CatalogTable({
   if (data.catalog.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Пусто. Примите серверы из списка ниже — они станут общим стандартом для
-        всех машин.
+        {t("Пусто. Примите серверы из списка ниже — они станут общим стандартом для всех машин.")}
       </p>
     );
   }
@@ -990,7 +986,7 @@ function CatalogTable({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-3 text-xs font-medium text-muted-foreground">
-                Сервер
+                {t("Сервер")}
               </TableHead>
               {columns.map((column) => (
                 <TableHead
@@ -1001,7 +997,7 @@ function CatalogTable({
                 </TableHead>
               ))}
               <TableHead className="px-3 text-right text-xs font-medium text-muted-foreground">
-                Область
+                {t("Область")}
               </TableHead>
               <TableHead className="w-10 px-2" />
             </TableRow>
@@ -1056,7 +1052,7 @@ function CatalogTable({
                   </TableCell>
                 ))}
                 <TableCell className="px-3 py-2.5 text-right text-xs text-muted-foreground">
-                  {entry.scope === "local-only" ? "локальный" : null}
+                  {entry.scope === "local-only" ? t("локальный") : null}
                 </TableCell>
                 <TableCell className="px-2 py-2.5 text-right">
                   <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -1064,7 +1060,7 @@ function CatalogTable({
                       size="icon"
                       variant="ghost"
                       className="size-7 text-muted-foreground hover:text-foreground"
-                      aria-label={`Убрать ${entry.name} из каталога, на машинах оставить`}
+                      aria-label={tp("Убрать {0} из каталога, на машинах оставить", entry.name)}
                       disabled={busy}
                       onClick={() => onRemove(entry.name)}
                     >
@@ -1080,14 +1076,14 @@ function CatalogTable({
                           onPurge(entry.name);
                         }}
                       >
-                        Точно?
+                        {t("Точно?")}
                       </Button>
                     ) : (
                       <Button
                         size="icon"
                         variant="ghost"
                         className="size-7 text-muted-foreground hover:text-destructive"
-                        aria-label={`Удалить ${entry.name} со всех машин`}
+                        aria-label={tp("Удалить {0} со всех машин", entry.name)}
                         disabled={busy}
                         onClick={() => setConfirming(entry.name)}
                       >
@@ -1107,10 +1103,10 @@ function CatalogTable({
 
 /** Панель фильтров-пилюль над таблицей новых серверов — один набор данных в разных срезах. */
 const PENDING_FILTERS: Array<{ key: PendingFilterKey; label: string; hint?: string }> = [
-  { key: "all", label: "В CLI", hint: "Подключены прямо в CLI. Состав шлюза — на вкладке «За шлюзом MetaMCP»." },
-  { key: "new", label: "Новые" },
-  { key: "gateway", label: "За шлюзом MetaMCP" },
-  { key: "local", label: "Локальные" },
+  { key: "all", label: t("В CLI"), hint: t("Подключены прямо в CLI. Состав шлюза — на вкладке «За шлюзом MetaMCP».") },
+  { key: "new", label: t("Новые") },
+  { key: "gateway", label: t("За шлюзом MetaMCP") },
+  { key: "local", label: t("Локальные") },
 ];
 
 /** Сегментированный переключатель среза — штатные вкладки BB, а не текст. */
@@ -1193,7 +1189,7 @@ function PendingRow({
   const anyEnabled = item.occurrences.some(
     (occurrence) => !occurrence.disabled,
   );
-  const toggleLabel = anyEnabled ? "Выключить" : "Включить";
+  const toggleLabel = anyEnabled ? t("Выключить") : t("Включить");
 
   const nameBlock = (
     <div className="min-w-0">
@@ -1208,7 +1204,7 @@ function PendingRow({
           note={
             togglable
               ? undefined
-              : "формат конфига не умеет выключать сервер, его можно только удалить"
+              : t("формат конфига не умеет выключать сервер, его можно только удалить")
           }
         />
         {item.name}
@@ -1261,16 +1257,16 @@ function PendingRow({
               variant="outline"
               className="whitespace-nowrap px-1.5 py-0 text-[11px] font-medium"
             >
-              шлюз
+              {t("шлюз")}
             </Badge>
           ) : null}
           {item.role === "vendor" ? (
             <Badge
               variant="outline"
               className="whitespace-nowrap px-1.5 py-0 text-[11px] font-medium"
-              title="ставится самим CLI, на другие машины не переносится"
+              title={t("ставится самим CLI, на другие машины не переносится")}
             >
-              от CLI
+              {t("от CLI")}
             </Badge>
           ) : null}
           {/* выключенность и так видна серой точкой и приглушённым именем —
@@ -1280,7 +1276,7 @@ function PendingRow({
               variant="outline"
               className="whitespace-nowrap px-1.5 py-0 text-[11px] font-medium"
             >
-              выключен
+              {t("выключен")}
             </Badge>
           ) : null}
         </span>
@@ -1294,7 +1290,7 @@ function PendingRow({
               disabled={disabled}
               onClick={() => onAdopt(item.name)}
             >
-              Принять
+              {t("Принять")}
             </Button>
           )}
           <Button
@@ -1303,7 +1299,7 @@ function PendingRow({
             disabled={disabled}
             onClick={() => onAdoptLocal(item.name)}
           >
-            Локально
+            {t("Локально")}
           </Button>
           {togglable ? (
             <Button
@@ -1321,7 +1317,7 @@ function PendingRow({
             disabled={disabled}
             onClick={() => onIgnore(item.name)}
           >
-            Скрыть
+            {t("Скрыть")}
           </Button>
           {confirming === item.name ? (
             <Button
@@ -1333,7 +1329,7 @@ function PendingRow({
                 onPurge(item.name);
               }}
             >
-              Точно?
+              {t("Точно?")}
             </Button>
           ) : (
             <Button
@@ -1342,7 +1338,7 @@ function PendingRow({
               disabled={disabled}
               onClick={() => onConfirm(item.name)}
             >
-              Удалить
+              {t("Удалить")}
             </Button>
           )}
         </span>
@@ -1361,7 +1357,7 @@ function PendingRow({
       rows.push(
         <TableRow key={`${item.name}-error`} className="hover:bg-transparent">
           <TableCell className="py-1.5 pl-6 pr-3 text-xs text-destructive">
-            ошибка: {remote.error}
+            {t("ошибка")}: {remote.error}
           </TableCell>
           <TableCell className="py-1.5" />
           <TableCell className="py-1.5" />
@@ -1374,7 +1370,7 @@ function PendingRow({
           <TableRow
             key={`${item.name}-${inner.name}`}
             className="hover:bg-transparent"
-            title="управляется в самом MetaMCP"
+            title={t("управляется в самом MetaMCP")}
           >
             <TableCell className="py-1 pl-6 pr-3 text-xs text-muted-foreground">
               {inner.name}
@@ -1464,7 +1460,7 @@ function PendingRow({
                 disabled={disabled}
                 onClick={() => onIgnore(server.name)}
               >
-                Скрыть
+                {t("Скрыть")}
               </Button>
               {confirming === confirmKey ? (
                 <Button
@@ -1477,7 +1473,7 @@ function PendingRow({
                     onPurge(server.name);
                   }}
                 >
-                  Точно?
+                  {t("Точно?")}
                 </Button>
               ) : (
                 <Button
@@ -1487,7 +1483,7 @@ function PendingRow({
                   disabled={disabled}
                   onClick={() => onConfirm(confirmKey)}
                 >
-                  Удалить
+                  {t("Удалить")}
                 </Button>
               )}
             </span>
@@ -1506,7 +1502,7 @@ function PendingRow({
                 multiHost ? "pl-16" : "pl-12",
               )}
             >
-              ошибка: {remote.error}
+              {t("ошибка")}: {remote.error}
             </TableCell>
             <TableCell className="py-1" />
             <TableCell className="py-1" />
@@ -1519,7 +1515,7 @@ function PendingRow({
             <TableRow
               key={`${confirmKey}-${inner.name}`}
               className="hover:bg-transparent"
-              title="управляется в самом MetaMCP"
+              title={t("управляется в самом MetaMCP")}
             >
               <TableCell className="py-0 pl-10 pr-3">
                 <span className="flex items-center gap-1.5 border-l border-border/60 py-1.5 pl-3 text-xs text-muted-foreground">
@@ -1586,7 +1582,7 @@ function PendingTable({
   if (items.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Пусто — в этом срезе новых серверов нет.
+        {t("Пусто — в этом срезе новых серверов нет.")}
       </p>
     );
   }
@@ -1598,13 +1594,13 @@ function PendingTable({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-3 text-xs font-medium text-muted-foreground">
-                Сервер
+                {t("Сервер")}
               </TableHead>
               <TableHead className="w-[24%] px-3 text-xs font-medium text-muted-foreground">
-                Где найден
+                {t("Где найден")}
               </TableHead>
               <TableHead className="w-[14%] px-3 text-xs font-medium text-muted-foreground">
-                Тип
+                {t("Тип")}
               </TableHead>
               <TableHead className="w-[26%] px-2" />
             </TableRow>
@@ -1638,7 +1634,7 @@ function PendingTable({
           className="mt-1.5 h-auto px-1.5 py-0.5 text-xs text-muted-foreground"
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? "свернуть" : `ещё ${hidden}`}
+          {expanded ? t("свернуть") : `ещё ${hidden}`}
         </Button>
       ) : null}
     </>
@@ -1722,7 +1718,7 @@ function AgentRows({
           )}
           {agent.gateway ? (
             <span className="whitespace-nowrap text-xs text-muted-foreground">
-              шлюз
+              {t("шлюз")}
             </span>
           ) : null}
         </span>
@@ -1735,7 +1731,7 @@ function AgentRows({
         )}
         {agent.configExists && agent.warning === null ? null : (
           <div className="mt-0.5 text-xs text-muted-foreground">
-            {agent.configExists ? "" : "нет файла"}
+            {agent.configExists ? "" : t("нет файла")}
             {agent.configExists || agent.warning === null ? "" : " · "}
             {agent.warning ?? ""}
           </div>
@@ -1751,18 +1747,18 @@ function AgentRows({
               variant="outline"
               className="border-amber-500/40 text-amber-500"
             >
-              не проброшен
+              {t("не проброшен")}
             </Badge>
           )}
           {agent.writable ? null : (
-            <Badge variant="outline">только чтение</Badge>
+            <Badge variant="outline">{t("только чтение")}</Badge>
           )}
           {agent.manageable || agent.gateway ? null : (
             <Badge
               variant="outline"
-              title="Путь конфига не подтверждён — плагин не создаёт файл сам"
+              title={t("Путь конфига не подтверждён — плагин не создаёт файл сам")}
             >
-              не пишем
+              {t("не пишем")}
             </Badge>
           )}
         </span>
@@ -1803,7 +1799,7 @@ function AgentRows({
             <TableRow
               key={`${agent.kind}-${server.name}-${inner.name}`}
               className="hover:bg-transparent"
-              title="управляется в самом MetaMCP"
+              title={t("управляется в самом MetaMCP")}
             >
               <TableCell className="py-0 pl-10 pr-3">
                 <span className="flex items-center gap-1.5 border-l border-border/60 py-1.5 pl-3 text-xs text-muted-foreground">
@@ -1846,7 +1842,7 @@ function AgentRows({
                 disabled={busy}
                 onClick={() => onToggleServer(server)}
               >
-                {isDisabled ? "Включить" : "Выключить"}
+                {isDisabled ? t("Включить") : t("Выключить")}
               </Button>
             </span>
           </TableCell>
@@ -1884,7 +1880,7 @@ function MachineTable({
   if (installedAgents.length === 0 && machine.otherClis.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        На этой машине не обнаружено ни одного CLI.
+        {t("На этой машине не обнаружено ни одного CLI.")}
       </p>
     );
   }
@@ -1898,13 +1894,13 @@ function MachineTable({
               CLI
             </TableHead>
             <TableHead className="px-3 text-xs font-medium text-muted-foreground">
-              Конфиг
+              {t("Конфиг")}
             </TableHead>
             <TableHead className="px-3 text-right text-xs font-medium text-muted-foreground">
-              Серверов
+              {t("Серверов")}
             </TableHead>
             <TableHead className="px-3 text-xs font-medium text-muted-foreground">
-              Состояние
+              {t("Состояние")}
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -1932,7 +1928,7 @@ function MachineTable({
                 —
               </TableCell>
               <TableCell className="px-3 py-2.5">
-                <Badge variant="outline">адаптера нет</Badge>
+                <Badge variant="outline">{t("адаптера нет")}</Badge>
               </TableCell>
             </TableRow>
           ))}
@@ -1962,12 +1958,12 @@ function parseGatewayPreview(text: string): {
   } catch (cause) {
     return {
       ok: false,
-      message: `JSON не разобран: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: tp("JSON не разобран: {0}", cause instanceof Error ? cause.message : String(cause)),
       servers: [],
     };
   }
   if (document === null || typeof document !== "object" || Array.isArray(document)) {
-    return { ok: false, message: "Ожидается JSON-объект", servers: [] };
+    return { ok: false, message: t("Ожидается JSON-объект"), servers: [] };
   }
   const doc = document as Record<string, unknown>;
   const inner = doc.mcpServers;
@@ -1978,7 +1974,7 @@ function parseGatewayPreview(text: string): {
   const servers: Array<{ name: string; detail: string }> = [];
   for (const [name, raw] of Object.entries(bucket)) {
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      servers.push({ name, detail: "непонятная запись" });
+      servers.push({ name, detail: t("непонятная запись") });
       continue;
     }
     const entry = raw as Record<string, unknown>;
@@ -1990,7 +1986,7 @@ function parseGatewayPreview(text: string): {
     } else if (url !== null) {
       servers.push({ name, detail: url });
     } else {
-      servers.push({ name, detail: "нет ни command, ни url" });
+      servers.push({ name, detail: t("нет ни command, ни url") });
     }
   }
   return { ok: servers.length > 0, message: null, servers };
@@ -2030,19 +2026,17 @@ function GatewayAddDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Добавить серверы за шлюз MetaMCP</DialogTitle>
+          <DialogTitle>{t("Добавить серверы за шлюз MetaMCP")}</DialogTitle>
             <DialogDescription>
-              Вставь JSON с картой mcpServers — записи будут дописаны в
-              ~/.agents/metamcp.mcp.json выбранной машины (с бэкапом). Новые
-              сессии CLI подхватят их автоматически.
+              {t("Вставь JSON с картой mcpServers — записи будут дописаны в ~/.agents/metamcp.mcp.json выбранной машины (с бэкапом). Новые сессии CLI подхватят их автоматически.")}
             </DialogDescription>
         </DialogHeader>
         <label className="block text-xs font-medium text-muted-foreground">
-          Машина
+          {t("Машина")}
         </label>
         <div
           role="group"
-          aria-label="Машина"
+          aria-label={t("Машина")}
           className="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-border bg-background p-0.5"
         >
           {hosts.map((item) => (
@@ -2066,13 +2060,13 @@ function GatewayAddDialog({
           ))}
         </div>
         <label className="block text-xs font-medium text-muted-foreground">
-          JSON со серверами
+          {t("JSON со серверами")}
         </label>
         <textarea
           value={text}
           spellCheck={false}
           onChange={(event) => setText(event.target.value)}
-          placeholder={'{\n  "mcpServers": {\n    "имя-сервера": {\n      "command": "node",\n      "args": ["/путь/к/server.js"]\n    }\n  }\n}'}
+          placeholder={`{\n  "mcpServers": {\n    "${t("имя-сервера")}": {\n      "command": "node",\n      "args": ["${t("/путь/к/server.js")}"]\n    }\n  }\n}`}
           className="h-44 w-full resize-y rounded-md border border-border bg-transparent p-2 font-mono text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
         {preview.message === null ? null : (
@@ -2081,12 +2075,12 @@ function GatewayAddDialog({
         {preview.servers.length > 0 && target !== null ? (
           <div className="rounded-md border border-border px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              Будет добавлено в шлюз «{target.hostName}»:
+              {t("Будет добавлено в шлюз")} «{target.hostName}»:
             </p>
             <ul className="mt-1 space-y-0.5">
               {preview.servers.map((server) => {
                 const replacing = target.existing.includes(server.name);
-                const broken = server.detail.includes("нет ни command");
+                const broken = server.detail.includes(t("нет ни command"));
                 return (
                   <li
                     key={server.name}
@@ -2098,7 +2092,7 @@ function GatewayAddDialog({
                     </span>
                     {replacing ? (
                       <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
-                        заменит существующий
+                        {t("заменит существующий")}
                       </Badge>
                     ) : null}
                     {broken ? (
@@ -2106,7 +2100,7 @@ function GatewayAddDialog({
                         variant="outline"
                         className="shrink-0 px-1 py-0 text-[10px] text-destructive"
                       >
-                        ошибка
+                        {t("ошибка")}
                       </Badge>
                     ) : null}
                   </li>
@@ -2128,7 +2122,7 @@ function GatewayAddDialog({
             disabled={submitting}
             onClick={() => onOpenChange(false)}
           >
-            Отмена
+            {t("Отмена")}
           </Button>
           <Button
             type="button"
@@ -2153,7 +2147,7 @@ function GatewayAddDialog({
                 .finally(() => setSubmitting(false));
             }}
           >
-            {submitting ? "Добавляю…" : "Добавить"}
+            {submitting ? t("Добавляю…") : t("Добавить")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2176,22 +2170,22 @@ function cliAgentProviderId(id: string): string | null {
 function pluginScopeLabel(scope: CliPluginItem["scope"]): string {
   switch (scope) {
     case "user":
-      return "пользователь";
+      return t("пользователь");
     case "project":
-      return "проект";
+      return t("проект");
     case "bundled":
-      return "встроенный";
+      return t("встроенный");
     case "npm":
       return "npm";
     case "local":
-      return "локальный";
+      return t("локальный");
     default:
       return scope ?? "—";
   }
 }
 
 function pluginVersionLabel(version: string | null | undefined): string {
-  if (!version) return "установлен";
+  if (!version) return t("установлен");
   if (version === "latest") return "latest";
   if (/^v/i.test(version) || !/^\d/.test(version)) return version;
   return `v${version}`;
@@ -2232,14 +2226,13 @@ function PluginsTabContent({
   return (
     <div className="space-y-4">
       <p className="max-w-3xl text-xs text-muted-foreground">
-        Строка — один плагин, значок показывает CLI, а колонки машин — где он
-        установлен и какая версия используется. Выберите CLI, чтобы скрыть остальные.
+        {t("Строка — один плагин, значок показывает CLI, а колонки машин — где он установлен и какая версия используется. Выберите CLI, чтобы скрыть остальные.")}
       </p>
 
       <Tabs value={agentFilter} onValueChange={(next) => setAgentFilter(next as typeof agentFilter)}>
         <TabsList>
           <TabsTrigger value="all">
-            Все <span className="ml-1.5 text-xs text-muted-foreground">{counts.all}</span>
+            {t("Все")} <span className="ml-1.5 text-xs text-muted-foreground">{counts.all}</span>
           </TabsTrigger>
           <TabsTrigger value="claude-code" className="inline-flex items-center gap-1.5">
             <CliIcon providerId="claude-code" />
@@ -2257,15 +2250,15 @@ function PluginsTabContent({
       </Tabs>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground">В этом срезе плагинов не найдено.</p>
+        <p className="text-sm text-muted-foreground">{t("В этом срезе плагинов не найдено.")}</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-14 px-2 text-center text-xs font-medium text-muted-foreground">CLI</TableHead>
-                <TableHead className="px-3 text-xs font-medium text-muted-foreground">Плагин</TableHead>
-                <TableHead className="w-32 px-3 text-xs font-medium text-muted-foreground">Область</TableHead>
+                <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Плагин")}</TableHead>
+                <TableHead className="w-32 px-3 text-xs font-medium text-muted-foreground">{t("Область")}</TableHead>
                 {displayHosts.map((h) => (
                   <TableHead key={h.hostId} className="px-3 text-center text-xs font-medium text-muted-foreground">
                     {h.name}
@@ -2333,7 +2326,7 @@ function PluginsTabContent({
                         >
                           {hp.enabled
                             ? pluginVersionLabel(hp.version)
-                            : `выключен${hp.version ? ` · ${pluginVersionLabel(hp.version)}` : ""}`}
+                            : `${t("выключен")}${hp.version ? ` · ${pluginVersionLabel(hp.version)}` : ""}`}
                         </Badge>
                       </TableCell>
                     );
@@ -2402,16 +2395,13 @@ function OpenCodeTabContent({
   }, [opencode]);
 
   if (!opencode) {
-    return <p className="text-sm text-muted-foreground">Загрузка данных OpenCode…</p>;
+    return <p className="text-sm text-muted-foreground">{t("Загрузка данных OpenCode…")}</p>;
   }
 
   return (
     <div className="space-y-5">
       <p className="max-w-3xl text-xs text-muted-foreground">
-        Конфигурация OpenCode (<b>~/.config/opencode/opencode.json(c)</b>): провайдеры,
-        модели и чистота настроек. Эталон — канонический набор:{" "}
-        <b>9Router + DeepSeek + Z.AI Coding Plan + Zen</b>. Кнопка «Синхронизировать»
-        приводит конфигурацию остальных машин к эталону.
+        {t("Конфигурация OpenCode (~/.config/opencode/opencode.json(c)): провайдеры, модели и чистота настроек. Эталон — канонический набор: 9Router + DeepSeek + Z.AI Coding Plan + Zen. Кнопка «Синхронизировать» приводит конфигурацию остальных машин к эталону.")}
       </p>
 
       {/* Любимая / предустановленная модель */}
@@ -2420,16 +2410,16 @@ function OpenCodeTabContent({
           <div>
             <h2 className="text-sm font-medium flex items-center gap-2">
               <Icon name="AiBrain01" className="size-4 text-emerald-500" />
-              Предустановленная модель для новых чатов (любимая модель)
+              {t("Предустановленная модель для новых чатов (любимая модель)")}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Модель, которая автоматически выбирается при создании нового чата в BB и является основной в CLI OpenCode.
+              {t("Модель, которая автоматически выбирается при создании нового чата в BB и является основной в CLI OpenCode.")}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Сейчас в BB:</span>
+            <span className="text-xs text-muted-foreground">{t("Сейчас в BB:")}</span>
             <Badge variant="secondary" className="font-mono text-xs bg-emerald-500/15 text-emerald-500 border-transparent">
-              {opencode.bbPreselectedModel ?? "не задана"}
+              {opencode.bbPreselectedModel ?? t("не задана")}
             </Badge>
           </div>
         </div>
@@ -2440,9 +2430,9 @@ function OpenCodeTabContent({
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">Модель</TableHead>
-                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">Провайдер</TableHead>
-                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">Статус</TableHead>
+                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Модель")}</TableHead>
+                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Провайдер")}</TableHead>
+                  <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Статус")}</TableHead>
                   <TableHead className="w-36 px-3 text-right text-xs font-medium text-muted-foreground" />
                 </TableRow>
               </TableHeader>
@@ -2469,27 +2459,27 @@ function OpenCodeTabContent({
                         <div className="flex flex-wrap items-center gap-1.5">
                           {isPreselected ? (
                             <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-transparent text-xs font-normal">
-                              ⭐ Предустановлена в BB
+                              {t("⭐ Предустановлена в BB")}
                             </Badge>
                           ) : null}
                           {m.isDefaultInOpenCode ? (
                             <Badge variant="outline" className="border-border text-xs font-normal">
-                              ⚡ Основная в OpenCode
+                              {t("⚡ Основная в OpenCode")}
                             </Badge>
                           ) : null}
                           {m.isSmallInOpenCode ? (
                             <Badge variant="outline" className="border-border text-xs font-normal text-muted-foreground">
-                              быстрая
+                              {t("быстрая")}
                             </Badge>
                           ) : null}
                           {!isPreselected && !m.isDefaultInOpenCode && !m.isSmallInOpenCode ? (
-                            <span className="text-xs text-muted-foreground">подключена</span>
+                            <span className="text-xs text-muted-foreground">{t("подключена")}</span>
                           ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-right">
                         {isPreselected ? (
-                          <span className="text-xs text-emerald-500 font-medium mr-2">Активна</span>
+                          <span className="text-xs text-emerald-500 font-medium mr-2">{t("Активна")}</span>
                         ) : (
                           <Button
                             size="sm"
@@ -2498,7 +2488,7 @@ function OpenCodeTabContent({
                             disabled={busy}
                             onClick={() => onSetDefaultModel(m.id)}
                           >
-                            Сделать любимой
+                            {t("Сделать любимой")}
                           </Button>
                         )}
                       </TableCell>
@@ -2521,24 +2511,24 @@ function OpenCodeTabContent({
                 variant={h.installed ? "secondary" : "outline"}
                 className={cn("font-normal", h.installed && "bg-emerald-500/15 text-emerald-500 border-transparent")}
               >
-                {h.installed ? "OpenCode готов" : "Не установлен"}
+                {h.installed ? t("OpenCode готов") : t("Не установлен")}
               </Badge>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
-                <span>Конфиг:</span>
+                <span>{t("Конфиг:")}</span>
                 <span className="font-mono text-[11px] truncate max-w-[180px]" title={h.configPath ?? ""}>
-                  {h.configPath ? h.configPath.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~") : "нет"}
+                  {h.configPath ? h.configPath.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~") : t("нет")}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Основная модель:</span>
+                <span>{t("Основная модель:")}</span>
                 <span className="font-mono text-[11px] text-foreground font-medium truncate max-w-[180px]">
                   {h.model ?? "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Быстрая модель:</span>
+                <span>{t("Быстрая модель:")}</span>
                 <span className="font-mono text-[11px] text-foreground truncate max-w-[180px]">
                   {h.smallModel ?? "—"}
                 </span>
@@ -2560,7 +2550,7 @@ function OpenCodeTabContent({
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-medium text-amber-500">
-              Обнаружены расхождения ({opencode.drift.length}):
+              {t("Обнаружены расхождения")} ({opencode.drift.length}):
             </span>
             <Button
               size="sm"
@@ -2569,7 +2559,7 @@ function OpenCodeTabContent({
               disabled={busy}
               onClick={() => onSync(false)}
             >
-              Исправить всё с эталона
+              {t("Исправить всё с эталона")}
             </Button>
           </div>
           <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
@@ -2590,13 +2580,13 @@ function OpenCodeTabContent({
         <Tabs value={providerFilter} onValueChange={(next) => setProviderFilter(next as typeof providerFilter)}>
           <TabsList>
             <TabsTrigger value="all">
-              Все провайдеры <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.all}</span>
+              {t("Все провайдеры")} <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.all}</span>
             </TabsTrigger>
             <TabsTrigger value="canonical">
-              Канонические <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.canonical}</span>
+              {t("Канонические")} <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.canonical}</span>
             </TabsTrigger>
             <TabsTrigger value="stale">
-              Устаревшие <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.stale}</span>
+              {t("Устаревшие")} <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.stale}</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -2608,7 +2598,7 @@ function OpenCodeTabContent({
               disabled={busy}
               onClick={() => onClean(false)}
             >
-              Удалить устаревшие · {providerCounts.stale}
+              {t("Удалить устаревшие")} · {providerCounts.stale}
             </Button>
           ) : null}
           <Button
@@ -2616,7 +2606,7 @@ function OpenCodeTabContent({
             disabled={busy}
             onClick={() => onSync(false)}
           >
-            Синхронизировать OpenCode
+            {t("Синхронизировать OpenCode")}
           </Button>
         </div>
       </div>
@@ -2626,9 +2616,9 @@ function OpenCodeTabContent({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="px-3 text-xs font-medium text-muted-foreground">Провайдер</TableHead>
-              <TableHead className="px-3 text-xs font-medium text-muted-foreground">Параметры</TableHead>
-              <TableHead className="px-3 text-xs font-medium text-muted-foreground">Модели</TableHead>
+              <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Провайдер")}</TableHead>
+              <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Параметры")}</TableHead>
+              <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Модели")}</TableHead>
               {displayHosts.map((h) => (
                 <TableHead key={h.hostId} className="px-3 text-xs font-medium text-muted-foreground">
                   {h.hostName}
@@ -2650,11 +2640,11 @@ function OpenCodeTabContent({
                         <span className="text-sm font-medium">{p.name}</span>
                         {p.isCanonical ? (
                           <Badge variant="outline" className="border-emerald-500/40 text-emerald-500 text-[10px] px-1 py-0 font-normal">
-                            канон
+                            {t("канон")}
                           </Badge>
                         ) : p.isStale ? (
                           <Badge variant="outline" className="border-amber-500/40 text-amber-500 text-[10px] px-1 py-0 font-normal">
-                            устаревший
+                            {t("устаревший")}
                           </Badge>
                         ) : null}
                       </div>
@@ -2665,7 +2655,7 @@ function OpenCodeTabContent({
                 <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
                   {p.npm ? <span className="block font-mono">{p.npm}</span> : null}
                   {p.baseURL ? <span className="block truncate max-w-[200px]" title={p.baseURL}>{p.baseURL}</span> : null}
-                  {!p.npm && !p.baseURL ? <span>встроенный</span> : null}
+                  {!p.npm && !p.baseURL ? <span>{t("встроенный")}</span> : null}
                 </TableCell>
                 <TableCell className="px-3 py-2.5">
                   {(() => {
@@ -2706,7 +2696,7 @@ function OpenCodeTabContent({
                           className="bg-emerald-500/15 text-emerald-500 border-transparent font-normal inline-flex items-center gap-1.5"
                         >
                           <span className="size-1.5 rounded-full bg-emerald-500" />
-                          Включён
+                          {t("Включён")}
                         </Badge>
                       </TableCell>
                     );
@@ -2715,7 +2705,7 @@ function OpenCodeTabContent({
                     <TableCell key={h.hostId} className="px-3 py-2.5">
                       <Badge variant="secondary" className="font-normal inline-flex items-center gap-1.5">
                         <span className="size-1.5 rounded-full bg-muted-foreground/60" />
-                        Настроен
+                        {t("Настроен")}
                       </Badge>
                     </TableCell>
                   );
@@ -2736,7 +2726,7 @@ function OpenCodeTabContent({
                           }
                         }}
                       >
-                        Удалить
+                        {t("Удалить")}
                       </Button>
                     ) : null}
                   </span>
@@ -2753,12 +2743,12 @@ function OpenCodeTabContent({
         if (pluginsByHost.length === 0) return null;
         return (
           <div className="space-y-2 pt-2">
-            <h2 className="text-sm font-medium">Плагины OpenCode в конфигурации</h2>
+            <h2 className="text-sm font-medium">{t("Плагины OpenCode в конфигурации")}</h2>
             <div className="overflow-hidden rounded-lg border border-border">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="px-3 text-xs font-medium text-muted-foreground">Плагин</TableHead>
+                    <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Плагин")}</TableHead>
                     {displayHosts.map((h) => (
                       <TableHead key={h.hostId} className="px-3 text-xs font-medium text-muted-foreground">
                         {h.hostName}
@@ -2779,7 +2769,7 @@ function OpenCodeTabContent({
                           <TableCell key={h.hostId} className="px-3 py-2">
                             {h.plugins.includes(pl) ? (
                               <Badge variant="secondary" className="font-normal text-xs">
-                                подключён
+                                {t("подключён")}
                               </Badge>
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
@@ -2819,7 +2809,7 @@ function CatalogPage() {
         dryRun,
       });
       setNotice(
-        `OpenCode sync${dryRun ? " [dry-run]" : ""}: синхронизировано машин ${result.synced}` +
+        `OpenCode sync${dryRun ? " [dry-run]" : ""}: ${tp("синхронизировано машин {0}", result.synced)}` +
           (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
       );
       return result.overview;
@@ -2832,7 +2822,7 @@ function CatalogPage() {
         dryRun,
       });
       setNotice(
-        `OpenCode clean${dryRun ? " [dry-run]" : ""}: удалено устаревших провайдеров ${result.removed}` +
+        `OpenCode clean${dryRun ? " [dry-run]" : ""}: ${tp("удалено устаревших провайдеров {0}", result.removed)}` +
           (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
       );
       return result.overview;
@@ -2847,8 +2837,8 @@ function CatalogPage() {
       });
       setNotice(
         result.ok
-          ? `Провайдер «${providerId}» удалён с машины`
-          : `Ошибка удаления: ${result.error ?? "не удалось"}`,
+          ? tp("Провайдер «{0}» удалён с машины", providerId)
+          : tp("Ошибка удаления: {0}", t(result.error ?? "не удалось")),
       );
       return result.overview;
     }), [act, rpc]);
@@ -2862,8 +2852,8 @@ function CatalogPage() {
       });
       setNotice(
         result.ok
-          ? `Предустановленная модель: ${modelId} (BB: ${result.bbUpdated ? "обновлено" : "пропущено"}, хосты: ${result.updatedHosts})`
-          : "Не удалось установить модель",
+          ? `Предустановленная модель: ${modelId} (BB: ${result.bbUpdated ? t("обновлено") : t("пропущено")}, хосты: ${result.updatedHosts})`
+          : t("Не удалось установить модель"),
       );
       return result.overview;
     }), [act, rpc]);
@@ -2871,7 +2861,7 @@ function CatalogPage() {
   if (data === null) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {error ?? "Загрузка каталога…"}
+        {error === null ? t("Загрузка каталога…") : t(error)}
       </div>
     );
   }
@@ -2975,25 +2965,25 @@ function CatalogPage() {
   if (data.catalog.length > 0) {
     statusItems.push({
       key: "catalog",
-      node: <span>каталог {data.catalog.length}</span>,
+      node: <span>{t("каталог")} {data.catalog.length}</span>,
     });
   }
   if (missing > 0) {
     statusItems.push({
       key: "missing",
-      node: <span className="text-destructive">не хватает {missing}</span>,
+      node: <span className="text-destructive">{t("не хватает")} {missing}</span>,
     });
   }
   if (different > 0) {
     statusItems.push({
       key: "different",
-      node: <span className="text-amber-500">отличается {different}</span>,
+      node: <span className="text-amber-500">{t("отличается")} {different}</span>,
     });
   }
   if (pending.length > 0) {
     statusItems.push({
       key: "pending",
-      node: <span>новых {pending.length}</span>,
+      node: <span>{t("новых")} {pending.length}</span>,
     });
   }
 
@@ -3005,7 +2995,7 @@ function CatalogPage() {
         includeDifferent,
       });
       setNotice(
-        `Применено: ${result.applied}, ошибок: ${result.failed}` +
+        tp("Применено: {0}, ошибок: {1}", result.applied, result.failed) +
           (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
       );
       return result.overview;
@@ -3020,7 +3010,7 @@ function CatalogPage() {
         dryRun: false,
       });
       setNotice(
-        `${name}: удалено записей ${result.removed}, ошибок ${result.failed}` +
+        tp("{0}: удалено записей {1}, ошибок {2}", name, result.removed, result.failed) +
           (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
       );
       return result.overview;
@@ -3091,18 +3081,35 @@ function CatalogPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h1 className="text-xl font-medium">
-                    {machine === null ? "Инструменты агентов" : machine.name}
+                    {machine === null ? t("Инструменты агентов") : machine.name}
                   </h1>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {plural(data.hosts.length, ["машина", "машины", "машин"])} · обход{" "}
+                    {plural(data.hosts.length, ["машина", "машины", "машин"])} · {t("обход")}{" "}
                     {relative(data.lastScanAt)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="flex overflow-hidden rounded-md border" role="group" aria-label={t("Язык интерфейса")}>
+                    {(["ru", "en"] as Lang[]).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        disabled={busy || data.lang === option}
+                        className={`px-2 py-1 text-xs ${
+                          data.lang === option
+                            ? "bg-muted font-medium text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        onClick={() => act(() => rpc.call("set_language", { lang: option }))}
+                      >
+                        {option === "ru" ? "RU" : "EN"}
+                      </button>
+                    ))}
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Обновить"
+                    aria-label={t("Обновить")}
                     disabled={busy}
                     onClick={() =>
                       act(() => rpc.call("rescan", { hostId: selected }))
@@ -3117,12 +3124,12 @@ function CatalogPage() {
                       disabled={busy}
                       onClick={() => setGatewayAddOpen(true)}
                     >
-                      За шлюз…
+                      {t("За шлюз…")}
                     </Button>
                   ) : null}
                   {toolTab === "mcp" && toSync > 0 ? (
                     <Button size="sm" disabled={busy} onClick={() => sync(true)}>
-                      Синхронизировать · {toSync}
+                      {t("Синхронизировать")} · {toSync}
                     </Button>
                   ) : null}
                   {toolTab === "opencode" ? (
@@ -3132,7 +3139,7 @@ function CatalogPage() {
                         disabled={busy}
                         onClick={() => syncOpenCode(false)}
                       >
-                        Синхронизировать OpenCode
+                        {t("Синхронизировать OpenCode")}
                       </Button>
                       {(data.opencode?.drift?.some((d) => d.type === "stale_provider") ||
                         (data.opencode?.providers?.some((p) => p.isStale && Object.values(p.hosts).some((h) => h.configured)))) ? (
@@ -3142,7 +3149,7 @@ function CatalogPage() {
                           disabled={busy}
                           onClick={() => cleanOpenCode(false)}
                         >
-                          Очистить устаревшие
+                          {t("Очистить устаревшие")}
                         </Button>
                       ) : null}
                     </div>
@@ -3153,14 +3160,14 @@ function CatalogPage() {
               {/* Отдельная строка для табов: зафиксирована слева, никогда не смещается */}
               <div className="mt-3">
                 <TabsList>
-                  <TabsTrigger value="mcp">MCP-серверы</TabsTrigger>
+                  <TabsTrigger value="mcp">{t("MCP-серверы")}</TabsTrigger>
                   <TabsTrigger value="skills">
-                    Скиллы
+                    {t("Скиллы")}
                     {skillsAttention === 0 ? null : ` · ${skillsAttention}`}
                   </TabsTrigger>
-                  <TabsTrigger value="backups">Архив</TabsTrigger>
+                  <TabsTrigger value="backups">{t("Архив")}</TabsTrigger>
                   <TabsTrigger value="plugins">
-                    Плагины
+                    {t("Плагины")}
                     <span className="ml-1.5 text-xs text-muted-foreground">
                       {data.plugins?.length ?? 0}
                     </span>
@@ -3178,12 +3185,12 @@ function CatalogPage() {
 
               {error === null ? null : (
                 <p role="alert" className="mt-3 text-sm text-destructive">
-                  {error}
+                  {t(error)}
                 </p>
               )}
               {notice === null ? null : (
                 <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
-                  {notice}
+                  {t(notice)}
                 </p>
               )}
 
@@ -3203,16 +3210,16 @@ function CatalogPage() {
                     <Switch
                       checked={data.autoSync}
                       disabled={busy}
-                      aria-label={`Автосинхронизация ${data.autoSync ? "включена" : "выключена"}`}
+                      aria-label={`Автосинхронизация ${data.autoSync ? t("включена") : t("выключена")}`}
                       onCheckedChange={(enabled) =>
                         act(() => rpc.call("set_auto_sync", { enabled }))
                       }
                     />
-                    Автосинхронизация
+                    {t("Автосинхронизация")}
                   </label>
                 </div>
 
-            <Section title="Каталог" count={data.catalog.length}>
+            <Section title={t("Каталог")} count={data.catalog.length}>
               <CatalogTable
                 data={data}
                 selected={selected}
@@ -3225,7 +3232,7 @@ function CatalogPage() {
             </Section>
 
             {pending.length === 0 ? null : (
-              <Section title="Серверы вне каталога">
+              <Section title={t("Серверы вне каталога")}>
                 <PendingFilters
                   value={pendingFilter}
                   onChange={setPendingFilter}
@@ -3247,7 +3254,7 @@ function CatalogPage() {
             )}
 
             {machine === null ? null : (
-              <Section title="CLI выбранной машины">
+              <Section title={t("CLI выбранной машины")}>
                 {machine.error === null ? (
                   <MachineTable
                     machine={machine}
@@ -3256,13 +3263,13 @@ function CatalogPage() {
                     onToggleServer={onToggleAgentServer}
                   />
                 ) : (
-                  <p className="text-sm text-destructive">{machine.error}</p>
+                  <p className="text-sm text-destructive">{t(machine.error)}</p>
                 )}
               </Section>
             )}
 
             {data.ignored.length === 0 ? null : (
-              <Section title="Скрытые" count={data.ignored.length}>
+              <Section title={t("Скрытые")} count={data.ignored.length}>
                 <div className="flex flex-wrap gap-2">
                   {data.ignored.map((name) => (
                     <Badge
@@ -3275,7 +3282,7 @@ function CatalogPage() {
                         size="icon"
                         variant="ghost"
                         className="size-5 text-muted-foreground hover:text-foreground"
-                        aria-label={`Вернуть ${name} в предложения`}
+                        aria-label={tp("Вернуть {0} в предложения", name)}
                         disabled={busy}
                         onClick={() =>
                           act(() => rpc.call("unignore", { names: [name] }))
@@ -3291,16 +3298,7 @@ function CatalogPage() {
               </TabsContent>
               <TabsContent value="skills" className="mt-4">
                 <p className="mb-2 max-w-3xl text-xs text-muted-foreground">
-                  Источник правды — канон <b>~/.agents/skills</b>: его читают Codex,
-                  Cursor и OpenCode сами, а <b>~/.claude/skills</b> получает симлинки,
-                  потому что Claude Code читает только свой дом. Папку{" "}
-                  <b>~/.bb/skills</b> правила не трогают: у BB свой реестр, и туда
-                  попадают только реальные папки — симлинк оттуда исчезает из списка
-                  навыков BB. Папку ~/.gemini/config/skills не используем.
-                  «Применить все правила» разбирает видимый срез: новые уходят в канон,
-                  копии удаляются или заменяются симлинком, расходящиеся решаются по
-                  дате файлов скилла, равные даты остаются тебе. Всё заменённое и
-                  удалённое лежит во вкладке «Архив» и восстанавливается оттуда.
+                  {t("Источник правды — канон ~/.agents/skills: его читают Codex, Cursor и OpenCode сами, а ~/.claude/skills получает симлинки, потому что Claude Code читает только свой дом. Папку ~/.bb/skills правила не трогают: у BB свой реестр, и туда попадают только реальные папки — симлинк оттуда исчезает из списка навыков BB. Папку ~/.gemini/config/skills не используем. «Применить все правила» разбирает видимый срез: новые уходят в канон, копии удаляются или заменяются симлинком, расходящиеся решаются по дате файлов скилла, равные даты остаются тебе. Всё заменённое и удалённое лежит во вкладке «Архив» и восстанавливается оттуда.")}
                 </p>
                 <SkillCanon data={data} selected={selected} />
                 <Separator className="my-4" />
@@ -3315,11 +3313,11 @@ function CatalogPage() {
                         rpc.call("skills_fanout", { hostId: selected, dryRun: false }).then((result) => {
                           setNotice(
                             (result.ops.length === 0
-                              ? "Дома уже совпадают с каноном."
-                              : `Разложено: ${result.applied}, ошибок: ${result.failed}`) +
+                              ? t("Дома уже совпадают с каноном.")
+                              : tp("Разложено: {0}, ошибок: {1}", result.applied, result.failed)) +
                               (result.skippedByPlugin.length === 0
                                 ? ""
-                                : `\nОтдаёт плагин, не дублируем: ${result.skippedByPlugin.length}`) +
+                                : `\n${tp("Отдаёт плагин, не дублируем: {0}", result.skippedByPlugin.length)}`) +
                               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
                           );
                           return result.overview;
@@ -3327,10 +3325,10 @@ function CatalogPage() {
                       )
                     }
                   >
-                    Разложить канон по домам
+                    {t("Разложить канон по домам")}
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    ссылки для Claude Code, зеркало для BB; то, что уже отдают плагины, не дублируется
+                    {t("ссылки для Claude Code, зеркало для BB; то, что уже отдают плагины, не дублируется")}
                   </span>
                 </div>
                 <Tabs
@@ -3368,7 +3366,7 @@ function CatalogPage() {
                               )
                               .then((result) => {
                                 setNotice(
-                                  `Правила применились: ${result.changed}, ошибок: ${result.failed}` +
+                                  tp("Правила применились: {0}, ошибок: {1}", result.changed, result.failed) +
                                     (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
                                 );
                                 return result.overview;
@@ -3376,11 +3374,11 @@ function CatalogPage() {
                           )
                         }
                       >
-                        Применить все правила · {ops.length}
+                        {t("Применить все правила")} · {ops.length}
                       </Button>
                       {ambiguous > 0 ? (
                         <span className="text-xs text-muted-foreground">
-                          расходятся с одинаковой датой: {ambiguous} — решить вручную
+                          {t("расходятся с одинаковой датой")}: {ambiguous} — {t("решить вручную")}
                         </span>
                       ) : null}
                     </div>
@@ -3389,20 +3387,20 @@ function CatalogPage() {
                 {skillVisible.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     {skillRows.length === 0
-                      ? "Всё на местах: вне канона скиллов не найдено."
-                      : "В этом срезе пусто — посмотри другие."}
+                      ? t("Всё на местах: вне канона скиллов не найдено.")
+                      : t("В этом срезе пусто — посмотри другие.")}
                   </p>
                 ) : (
                 <div className="overflow-hidden rounded-lg border border-border">
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">Скилл</TableHead>
+                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Скилл")}</TableHead>
                         {selected === null ? (
-                          <TableHead className="px-3 text-xs font-medium text-muted-foreground">Машина</TableHead>
+                          <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Машина")}</TableHead>
                         ) : null}
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">Папка</TableHead>
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">Состояние</TableHead>
+                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Папка")}</TableHead>
+                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Состояние")}</TableHead>
                         <TableHead className="w-10 px-2" />
                       </TableRow>
                     </TableHeader>
@@ -3492,14 +3490,14 @@ function CatalogPage() {
         defaultHostId={gatewayAddTarget}
         onDone={(result) => {
           setNotice(
-            `За шлюз добавлено: ${result.added}` +
+            tp("За шлюз добавлено: {0}", result.added) +
               (result.replaced.length > 0
-                ? `, заменены: ${result.replaced.join(", ")}`
+                ? tp(", заменены: {0}", result.replaced.join(", "))
                 : "") +
               (result.errors.length === 0
                 ? ""
                 : `\n${result.errors.join("\n")}`) +
-              "\nНовые сессии CLI увидят серверы автоматически.",
+              t("\nНовые сессии CLI увидят серверы автоматически."),
           );
         }}
       />
@@ -3534,7 +3532,7 @@ function SidebarBadge() {
 export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "catalog",
-    title: "Инструменты",
+    title: t("Инструменты"),
     icon: "Toolbox",
     path: "catalog",
     component: CatalogPage,

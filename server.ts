@@ -35,6 +35,10 @@ import {
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
 import { computeSkillRows, locationPath } from "./skills";
+import { setLang, setDictionary, t, tp, isLang, type Lang } from "./i18n";
+import { EN } from "./i18n.en";
+
+setDictionary(EN);
 import {
   buildProviderRows,
   detectOpenCodeDrift,
@@ -106,6 +110,8 @@ const overviewSchema = z.object({
   drift: z.array(driftSchema),
   metamcp: z.array(metamcpSchema),
   autoSync: z.boolean(),
+  /** Язык интерфейса плагина: им же отвечает CLI. */
+  lang: z.enum(["ru", "en"]),
   lastScanAt: z.number().nullable(),
   lastSyncAt: z.number().nullable(),
   skills: z.array(
@@ -287,6 +293,11 @@ export const rpcContract = defineRpcContract({
     }),
   },
   /** Раскатка канона по домам CLI на машинах: ссылки, зеркало BB, архив. */
+  /** Переключить язык интерфейса плагина и его CLI. */
+  set_language: {
+    input: z.object({ lang: z.enum(["ru", "en"]) }),
+    output: overviewSchema,
+  },
   skills_fanout: {
     input: z.object({ hostId: z.string().nullable(), dryRun: z.boolean().default(false) }),
     output: z.object({
@@ -424,38 +435,45 @@ interface HostPluginsSnapshot {
 }
 
 export default async function plugin(bb: BbPluginApi) {
+  // Язык интерфейса плагина. Храним в kv, а не в настройках: подписи самих
+  // настроек объявляются раньше, чем их значения можно прочитать, поэтому
+  // источник правды должен быть доступен до define.
+  const storedLang = await bb.storage.kv.get<string>("lang");
+  let currentLang: Lang = isLang(storedLang) ? storedLang : "ru";
+  setLang(currentLang);
+
   const settings = bb.settings.define({
     metamcpUrl: {
       type: "string",
-      label: "MetaMCP: адрес",
-      description: "Например https://metamcp.example.com — каталог покажет серверы за шлюзом.",
+      label: t("MetaMCP: адрес"),
+      description: t("Например https://metamcp.example.com — каталог покажет серверы за шлюзом."),
       default: "",
     },
     metamcpApiKey: {
       type: "string",
-      label: "MetaMCP: API-ключ",
-      description: "Ключ вида sk_mt_… из раздела API Keys.",
+      label: t("MetaMCP: API-ключ"),
+      description: t("Ключ вида sk_mt_… из раздела API Keys."),
       secret: true,
       default: "",
     },
     metamcpNamespaces: {
       type: "string",
-      label: "MetaMCP: namespace'ы",
-      description: "Через запятую. По умолчанию secondary.",
+      label: t("MetaMCP: namespace'ы"),
+      description: t("Через запятую. По умолчанию secondary."),
       default: "secondary",
     },
     skillsFanOutPluginNames: {
       type: "boolean",
-      label: "Скиллы: раскатывать и то, что отдают плагины",
+      label: t("Скиллы: раскатывать и то, что отдают плагины"),
       description:
-        "Включено — в домах CLI лежит весь канон, даже если имя уже приходит из плагина-маркетплейса: так навык виден и в CLI мимо BB. Цена — в сессиях BB такое имя показано дважды. Выключите, чтобы список навыков в BB был без двойников.",
+        t("Включено — в домах CLI лежит весь канон, даже если имя уже приходит из плагина-маркетплейса: так навык виден и в CLI мимо BB. Цена — в сессиях BB такое имя показано дважды. Выключите, чтобы список навыков в BB был без двойников."),
       default: true,
     },
     skillsSyncRemote: {
       type: "string",
-      label: "Скиллы: git-remote канона",
+      label: t("Скиллы: git-remote канона"),
       description:
-        "Любой git-URL (свой GitHub/GitLab/сервер). Пусто — синк выключен. Плагин не привязан к конкретному хостингу.",
+        t("Любой git-URL (свой GitHub/GitLab/сервер). Пусто — синк выключен. Плагин не привязан к конкретному хостингу."),
       secret: true,
       default: "",
     },
@@ -995,6 +1013,7 @@ export default async function plugin(bb: BbPluginApi) {
       metamcp: metamcpCache,
       probes: await readProbes(),
       autoSync,
+      lang: currentLang,
       lastScanAt: (await bb.storage.kv.get<number>("lastScanAt")) ?? null,
       lastSyncAt: (await bb.storage.kv.get<number>("lastSyncAt")) ?? null,
       skills: skillsViews,
@@ -1066,11 +1085,11 @@ export default async function plugin(bb: BbPluginApi) {
 
   /** Метки операций раскатки — одни и те же в CLI и в интерфейсе. */
   const SKILL_FANOUT_LABEL: Record<string, string> = {
-    link: "ссылок",
-    mirror: "зеркал BB",
-    drop: "убрано",
-    pull: "забрано в канон",
-    retire: "уведено в архив",
+    link: t("ссылок"),
+    mirror: t("зеркал BB"),
+    drop: t("убрано"),
+    pull: t("забрано в канон"),
+    retire: t("уведено в архив"),
   };
 
   /**
@@ -1110,7 +1129,7 @@ export default async function plugin(bb: BbPluginApi) {
           if (op.ok) applied += 1;
           else {
             failed += 1;
-            errors.push(`${machine.name} · ${op.name}: ${op.error ?? "ошибка"}`);
+            errors.push(`${machine.name} · ${op.name}: ${op.error ?? t("ошибка")}`);
           }
         }
         for (const name of result.skippedByPlugin) skipped.add(name);
@@ -1194,7 +1213,7 @@ export default async function plugin(bb: BbPluginApi) {
           if (item.ok) applied += 1;
           else {
             failed += 1;
-            errors.push(`${hostOps[0]?.hostName ?? targetHost} / ${item.kind} / ${item.name}: ${item.error ?? "ошибка"}`);
+            errors.push(`${hostOps[0]?.hostName ?? targetHost} / ${item.kind} / ${item.name}: ${item.error ?? t("ошибка")}`);
           }
         }
       } catch (cause) {
@@ -1242,7 +1261,7 @@ export default async function plugin(bb: BbPluginApi) {
           if (item.ok) removed += 1;
           else {
             failed += 1;
-            errors.push(`${snapshot.hostName} / ${item.kind} / ${item.name}: ${item.error ?? "ошибка"}`);
+            errors.push(`${snapshot.hostName} / ${item.kind} / ${item.name}: ${item.error ?? t("ошибка")}`);
           }
         }
       } catch (cause) {
@@ -1293,7 +1312,7 @@ export default async function plugin(bb: BbPluginApi) {
         for (const item of result.results) {
           if (item.ok) changed += 1;
           else {
-            errors.push(`${snapshot.hostName} / ${item.kind} / ${item.name}: ${item.error ?? "ошибка"}`);
+            errors.push(`${snapshot.hostName} / ${item.kind} / ${item.name}: ${item.error ?? t("ошибка")}`);
           }
         }
       } catch (cause) {
@@ -1316,11 +1335,11 @@ export default async function plugin(bb: BbPluginApi) {
       document = JSON.parse(text);
     } catch (cause) {
       throw new Error(
-        `JSON не разобран: ${cause instanceof Error ? cause.message : String(cause)}`,
+        tp("JSON не разобран: {0}", cause instanceof Error ? cause.message : String(cause)),
       );
     }
     if (document === null || typeof document !== "object" || Array.isArray(document)) {
-      throw new Error("Ожидается JSON-объект с картой серверов");
+      throw new Error(t("Ожидается JSON-объект с картой серверов"));
     }
     const doc = document as Record<string, unknown>;
     const inner = doc.mcpServers;
@@ -1329,14 +1348,14 @@ export default async function plugin(bb: BbPluginApi) {
         ? (inner as Record<string, unknown>)
         : doc;
     if (Object.keys(bucket).length === 0) {
-      throw new Error("В тексте нет ни одного сервера");
+      throw new Error(t("В тексте нет ни одного сервера"));
     }
     const servers: McpServer[] = [];
     const errors: string[] = [];
     for (const [name, raw] of Object.entries(bucket)) {
       const server = fromDialect("metamcp", name, raw);
       if (server === null) {
-        errors.push(`${name}: в записи нет ни command, ни url`);
+        errors.push(tp("{0}: в записи нет ни command, ни url", name));
         continue;
       }
       servers.push(server);
@@ -1357,20 +1376,20 @@ export default async function plugin(bb: BbPluginApi) {
     const snapshots = await readSnapshots();
     const snapshot = snapshots.find((item) => item.hostId === hostId);
     if (snapshot === undefined || snapshot.scan === null) {
-      throw new Error("Машина не на связи или ещё не сканировалась");
+      throw new Error(t("Машина не на связи или ещё не сканировалась"));
     }
     const gateway = snapshot.scan.agents.find((agent) => agent.kind === "metamcp-stdio");
     if (gateway === undefined || !gateway.configExists) {
       throw new Error(
-        `На «${snapshot.hostName}» нет конфига шлюза ~/.agents/metamcp.mcp.json — плагин не создаёт конфиги с неподтверждённым путём`,
+        tp("На «{0}» нет конфига шлюза ~/.agents/metamcp.mcp.json — плагин не создаёт конфиги с неподтверждённым путём", snapshot.hostName),
       );
     }
     if (!gateway.writable) {
-      throw new Error(gateway.warning ?? "Конфиг шлюза недоступен для записи");
+      throw new Error(gateway.warning ?? t("Конфиг шлюза недоступен для записи"));
     }
     const { servers, errors } = parseGatewayServers(text);
     if (servers.length === 0) {
-      throw new Error(errors.join("\n") || "Не найдено ни одного сервера");
+      throw new Error(errors.join("\n") || t("Не найдено ни одного сервера"));
     }
     const replaced = servers
       .filter((server) => gateway.servers.some((item) => item.name === server.name))
@@ -1389,7 +1408,7 @@ export default async function plugin(bb: BbPluginApi) {
       backups: result.backups,
       errors: [
         ...errors,
-        ...failed.map((item) => `${item.name}: ${item.error ?? "ошибка"}`),
+        ...failed.map((item) => `${item.name}: ${item.error ?? t("ошибка")}`),
       ].slice(0, 100),
     };
   }
@@ -1488,7 +1507,7 @@ export default async function plugin(bb: BbPluginApi) {
 
     const sourceSnap = openCodeSnapshots.find((s) => s.hostId === srcId);
     if (!sourceSnap || !sourceSnap.scan || !sourceSnap.scan.configExists) {
-      throw new Error("Конфиг OpenCode на исходной машине не найден");
+      throw new Error(t("Конфиг OpenCode на исходной машине не найден"));
     }
 
     const targets = hostsList.filter(
@@ -1547,7 +1566,7 @@ export default async function plugin(bb: BbPluginApi) {
             });
           }
         } else {
-          errors.push(`${machine.name}: ${res.error ?? "ошибка"}`);
+          errors.push(`${machine.name}: ${res.error ?? t("ошибка")}`);
         }
       } catch (cause) {
         errors.push(`${machine.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -1601,7 +1620,7 @@ export default async function plugin(bb: BbPluginApi) {
             });
           }
         } else {
-          errors.push(`${machine.name}: ${res.error ?? "ошибка"}`);
+          errors.push(`${machine.name}: ${res.error ?? t("ошибка")}`);
         }
       } catch (cause) {
         errors.push(`${machine.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -1637,7 +1656,7 @@ export default async function plugin(bb: BbPluginApi) {
     catalog_update: async ({ name, scope, targets, spec }) => {
       const catalog = await readCatalog();
       const entry = catalog.find((candidate) => candidate.name === name);
-      if (entry === undefined) throw new Error(`Нет записи каталога: ${name}`);
+      if (entry === undefined) throw new Error(tp("Нет записи каталога: {0}", name));
       if (scope !== null) entry.scope = scope;
       if (targets !== null) entry.targets = targets;
       if (spec !== null) entry.spec = spec;
@@ -1683,7 +1702,7 @@ export default async function plugin(bb: BbPluginApi) {
       // Отказ машины (нельзя удалять без симлинка, скилла нет на месте и т.п.)
       // раньше терялся молча — строка просто не менялась. Теперь это ошибка.
       const result = await host.call("skills_adopt", { locationId, name, mode }, { hostId });
-      if (!result.ok) throw new Error(`Скилл ${name}: ${result.error ?? "не удалось"}`);
+      if (!result.ok) throw new Error(`Скилл ${name}: ${result.error ?? t("не удалось")}`);
       await scanAll(hostId);
       return publish();
     },
@@ -1708,7 +1727,7 @@ export default async function plugin(bb: BbPluginApi) {
             if (item.ok) changed += 1;
             else {
               failed += 1;
-              errors.push(`${item.name}: ${item.error ?? "ошибка"}`);
+              errors.push(`${item.name}: ${item.error ?? t("ошибка")}`);
             }
           }
         } catch (cause) {
@@ -1719,6 +1738,12 @@ export default async function plugin(bb: BbPluginApi) {
       await scanAll(null);
       return { changed, failed, errors: errors.slice(0, 100), overview: await publish() };
     },
+    set_language: async ({ lang: next }) => {
+      currentLang = next;
+      setLang(next);
+      await bb.storage.kv.set("lang", next);
+      return publish();
+    },
     skills_fanout: async ({ hostId, dryRun }) => ({
       ...(await runSkillsFanOut(hostId, dryRun)),
       overview: await publish(),
@@ -1726,13 +1751,13 @@ export default async function plugin(bb: BbPluginApi) {
     skills_backups: async ({ hostId }) => runSkillsBackups(hostId),
     skills_backup_restore: async ({ hostId, id }) => {
       const result = await host.call("skills_backup_restore", { id }, { hostId });
-      if (!result.ok) throw new Error(result.error ?? "не удалось восстановить снимок");
+      if (!result.ok) throw new Error(result.error ?? t("не удалось восстановить снимок"));
       await scanAll(hostId);
       return { ok: true, message: result.message, overview: await publish() };
     },
     skills_sync: async ({ hostId }) => {
       const remote = config.skillsSyncRemote.trim();
-      if (remote === "") throw new Error("Синк скиллов выключен: не задан git-remote в настройках плагина");
+      if (remote === "") throw new Error(t("Синк скиллов выключен: не задан git-remote в настройках плагина"));
       const hostsList = await bb.sdk.hosts.list();
       const targets = hostsList.filter(
         (candidate) => (hostId === null || candidate.id === hostId) && candidate.status === "connected",
@@ -1763,7 +1788,7 @@ export default async function plugin(bb: BbPluginApi) {
     opencode_apply: async ({ hostId, ops, dryRun }) => {
       const hostsList = await bb.sdk.hosts.list();
       const target = hostsList.find((h) => h.id === hostId);
-      if (!target) throw new Error("Машина не найдена");
+      if (!target) throw new Error(t("Машина не найдена"));
 
       try {
         const res = await host.call("opencode_apply", { ops, dryRun }, { hostId });
@@ -1861,23 +1886,24 @@ export default async function plugin(bb: BbPluginApi) {
   // ------------------------------------------------------------------ cli
   const usage = [
     "Usage:",
-    "  bb tools status [--json]        Каталог, машины, расхождения",
-    "  bb tools scan [--host <id>]     Пересканировать машины",
-    "  bb tools catalog [--json]       Записи каталога",
-    "  bb tools pending [--json]       Новые серверы, ещё не принятые",
-    "  bb tools adopt <name...>        Принять серверы в каталог",
-    "  bb tools ignore <name...>       Больше не предлагать",
-    "  bb tools unignore <name...>     Вернуть скрытый сервер",
-    "  bb tools plan [--host <id>]     Что изменит синхронизация",
+    t("  bb tools status [--json]        Каталог, машины, расхождения"),
+    t("  bb tools scan [--host <id>]     Пересканировать машины"),
+    t("  bb tools catalog [--json]       Записи каталога"),
+    t("  bb tools pending [--json]       Новые серверы, ещё не принятые"),
+    t("  bb tools adopt <name...>        Принять серверы в каталог"),
+    t("  bb tools ignore <name...>       Больше не предлагать"),
+    t("  bb tools unignore <name...>     Вернуть скрытый сервер"),
+    t("  bb tools plan [--host <id>]     Что изменит синхронизация"),
     "  bb tools sync [--host <id>] [--dry-run] [--with-different]",
-    "  bb tools forget <name>          Убрать запись из каталога",
-    "  bb tools remove <name> [--with-gateways]   Удалить сервер со всех машин",
-    "  bb tools probe [<name>]         Живая проверка связи",
-    "  bb tools enable|disable <name>  Включить или выключить сервер",
-    "  bb tools auto on|off            Автосинхронизация раз в час",
-    "  bb tools gateway-add <файл> --host <id>  Добавить серверы за шлюз",
-    "  bb tools skills [--host <id>]            Скиллы вне канона",
-    "  bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]  Скилл за канон",
+    t("  bb tools forget <name>          Убрать запись из каталога"),
+    t("  bb tools remove <name> [--with-gateways]   Удалить сервер со всех машин"),
+    t("  bb tools probe [<name>]         Живая проверка связи"),
+    t("  bb tools enable|disable <name>  Включить или выключить сервер"),
+    t("  bb tools auto on|off            Автосинхронизация раз в час"),
+    t("  bb tools gateway-add <файл> --host <id>  Добавить серверы за шлюз"),
+    t("  bb tools lang [ru|en]           Язык интерфейса и вывода"),
+    t("  bb tools skills [--host <id>]            Скиллы вне канона"),
+    t("  bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]  Скилл за канон"),
   ].join("\n");
 
   /** Русские склонения: 1 сервер, 2 сервера, 5 серверов. */
@@ -1899,7 +1925,7 @@ export default async function plugin(bb: BbPluginApi) {
       const different = current.drift.filter((item) => item.hostId === machine.hostId && item.state === "different").length;
       lines.push(
         `\n${machine.name} [${machine.status}] ${machine.hostname}` +
-          (machine.error === null ? "" : `\n  ошибка: ${machine.error}`),
+          (machine.error === null ? "" : `\n  ${tp("ошибка: {0}", machine.error)}`),
       );
       for (const agent of installed) {
         lines.push(
@@ -1907,15 +1933,15 @@ export default async function plugin(bb: BbPluginApi) {
         );
       }
       if (machine.otherClis.length > 0) {
-        lines.push(`  другие CLI: ${machine.otherClis.map((cli) => cli.bin).join(", ")}`);
+        lines.push(`  ${tp("другие CLI: {0}", machine.otherClis.map((cli) => cli.bin).join(", "))}`);
       }
-      lines.push(`  расхождения: не хватает ${missing}, отличается ${different}`);
+      lines.push(`  ${tp("расхождения: не хватает {0}, отличается {1}", missing, different)}`);
     }
     if (current.pending.length > 0) {
-      lines.push(`\nНовые серверы (${current.pending.length}):`);
+      lines.push(`\n${tp("Новые серверы ({0}):", current.pending.length)}`);
       for (const item of current.pending) {
         lines.push(
-          `  ${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [локальный: ${item.reason}]` : ""}`,
+          `  ${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [${tp("локальный: {0}", item.reason)}]` : ""}`,
         );
       }
     }
@@ -1924,7 +1950,7 @@ export default async function plugin(bb: BbPluginApi) {
         `\nMetaMCP /${namespace.namespace}: ` +
           (namespace.error === null
             ? namespace.servers.map((server) => `${server.name}(${server.tools})`).join(", ")
-            : `ошибка ${namespace.error}`),
+            : tp("ошибка {0}", namespace.error)),
       );
     }
     return lines.join("\n");
@@ -1932,109 +1958,114 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: "tools",
-    summary: "Инструменты агентов: MCP-серверы и навыки на всех машинах BB",
+    summary: t("Инструменты агентов: MCP-серверы и навыки на всех машинах BB"),
     commands: [
-      { name: "status", summary: "Каталог, машины и расхождения", usage: "bb tools status [--json]" },
-      { name: "scan", summary: "Пересканировать машины", usage: "bb tools scan [--host <id>]" },
-      { name: "catalog", summary: "Записи каталога", usage: "bb tools catalog [--json]" },
-      { name: "pending", summary: "Новые серверы", usage: "bb tools pending [--json]" },
-      { name: "adopt", summary: "Принять серверы в каталог", usage: "bb tools adopt <name...>" },
-      { name: "ignore", summary: "Больше не предлагать сервер", usage: "bb tools ignore <name...>" },
+      { name: "status", summary: t("Каталог, машины и расхождения"), usage: "bb tools status [--json]" },
+      { name: "scan", summary: t("Пересканировать машины"), usage: "bb tools scan [--host <id>]" },
+      { name: "catalog", summary: t("Записи каталога"), usage: "bb tools catalog [--json]" },
+      { name: "pending", summary: t("Новые серверы"), usage: "bb tools pending [--json]" },
+      { name: "adopt", summary: t("Принять серверы в каталог"), usage: "bb tools adopt <name...>" },
+      { name: "ignore", summary: t("Больше не предлагать сервер"), usage: "bb tools ignore <name...>" },
       {
         name: "unignore",
-        summary: "Вернуть скрытый сервер в предложения",
+        summary: t("Вернуть скрытый сервер в предложения"),
         usage: "bb tools unignore <name...>",
       },
-      { name: "plan", summary: "Показать план синхронизации", usage: "bb tools plan [--host <id>]" },
+      { name: "plan", summary: t("Показать план синхронизации"), usage: "bb tools plan [--host <id>]" },
       {
         name: "sync",
-        summary: "Синхронизировать машины с каталогом",
+        summary: t("Синхронизировать машины с каталогом"),
         usage: "bb tools sync [--host <id>] [--dry-run] [--with-different]",
       },
       {
         name: "forget",
-        summary: "Убрать запись из каталога, машины не трогать",
+        summary: t("Убрать запись из каталога, машины не трогать"),
         usage: "bb tools forget <name>",
       },
       {
         name: "remove",
-        summary: "Удалить сервер со всех машин",
+        summary: t("Удалить сервер со всех машин"),
         usage: "bb tools remove <name> [--host <id>] [--with-gateways] [--dry-run]",
       },
       {
         name: "probe",
-        summary: "Живая проверка связи с серверами",
+        summary: t("Живая проверка связи с серверами"),
         usage: "bb tools probe [<name>] [--host <id>]",
       },
       {
         name: "enable",
-        summary: "Включить сервер там, где формат это поддерживает",
+        summary: t("Включить сервер там, где формат это поддерживает"),
         usage: "bb tools enable <name> [--host <id>]",
       },
       {
         name: "disable",
-        summary: "Выключить сервер, не удаляя его",
+        summary: t("Выключить сервер, не удаляя его"),
         usage: "bb tools disable <name> [--host <id>]",
       },
-      { name: "auto", summary: "Автосинхронизация раз в час", usage: "bb tools auto on|off" },
+      { name: "auto", summary: t("Автосинхронизация раз в час"), usage: "bb tools auto on|off" },
       {
         name: "gateway-add",
-        summary: "Добавить серверы за шлюз MetaMCP из JSON-файла",
-        usage: "bb tools gateway-add <файл.json> --host <id>",
+        summary: t("Добавить серверы за шлюз MetaMCP из JSON-файла"),
+        usage: t("bb tools gateway-add <файл.json> --host <id>"),
+      },
+      {
+        name: "lang",
+        summary: t("Язык интерфейса и вывода: ru или en"),
+        usage: "bb tools lang [ru|en]",
       },
       {
         name: "skills",
-        summary: "Скиллы вне канона, с --canon — сам канон по машинам",
+        summary: t("Скиллы вне канона, с --canon — сам канон по машинам"),
         usage: "bb tools skills [--host <id>] [--canon]",
       },
       {
         name: "skills-adopt",
-        summary: "Перенести скилл в канон или перекрыть симлинком",
-        usage: "bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]",
+        summary: t("Перенести скилл в канон или перекрыть симлинком"),
+        usage: t("bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]"),
       },
       {
         name: "skills-fanout",
-        summary: "Разложить канон по домам CLI: ссылки, зеркало BB, архив",
+        summary: t("Разложить канон по домам CLI: ссылки, зеркало BB, архив"),
         usage: "bb tools skills-fanout [--host <id>] [--dry-run] [--all]",
       },
       {
         name: "skills-backups",
-        summary: "Архив снимков скиллов",
+        summary: t("Архив снимков скиллов"),
         usage: "bb tools skills-backups [--host <id>] [--json]",
       },
       {
         name: "skills-restore",
-        summary: "Вернуть снимок из архива в канон",
-        usage: "bb tools skills-restore <id-снимка> --host <id>",
+        summary: t("Вернуть снимок из архива в канон"),
+        usage: t("bb tools skills-restore <id-снимка> --host <id>"),
       },
       {
         name: "skills-sync",
-        summary: "Синк канона скиллов с git-remote",
+        summary: t("Синк канона скиллов с git-remote"),
         usage: "bb tools skills-sync [--host <id>]",
       },
       {
         name: "plugins",
-        summary: "Установленные плагины BB по машинам",
+        summary: t("Установленные плагины BB по машинам"),
         usage: "bb tools plugins [--json]",
       },
       {
         name: "opencode",
-        summary: "Состояние моделей и провайдеров OpenCode на всех машинах",
+        summary: t("Состояние моделей и провайдеров OpenCode на всех машинах"),
         usage: "bb tools opencode [--json]",
       },
       {
         name: "opencode-sync",
-        summary: "Синхронизировать конфигурацию OpenCode с эталона на другие машины",
+        summary: t("Синхронизировать конфигурацию OpenCode с эталона на другие машины"),
         usage: "bb tools opencode-sync [--from <host>] [--to <host>] [--dry-run] [--json]",
       },
       {
         name: "opencode-clean",
-        summary: "Очистить устаревшие провайдеры OpenCode",
+        summary: t("Очистить устаревшие провайдеры OpenCode"),
         usage: "bb tools opencode-clean [--host <id>] [--dry-run] [--json]",
       },
       {
         name: "opencode-set-default",
-        summary: "Выбрать предустановленную модель OpenCode для новых чатов BB и CLI",
+        summary: t("Выбрать предустановленную модель OpenCode для новых чатов BB и CLI"),
         usage: "bb tools opencode-set-default <modelId>",
       },
     ],
@@ -2073,7 +2104,7 @@ export default async function plugin(bb: BbPluginApi) {
           return reply(
             catalog,
             catalog.length === 0
-              ? "Каталог пуст. Примите серверы: bb tools adopt <name>"
+              ? t("Каталог пуст. Примите серверы: bb tools adopt <name>")
               : catalog
                   .map(
                     (entry) =>
@@ -2087,11 +2118,11 @@ export default async function plugin(bb: BbPluginApi) {
           return reply(
             current.pending,
             current.pending.length === 0
-              ? "Новых серверов нет."
+              ? t("Новых серверов нет.")
               : current.pending
                   .map(
                     (item) =>
-                      `${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [локальный: ${item.reason}]` : ""}`,
+                      `${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [${tp("локальный: {0}", item.reason)}]` : ""}`,
                   )
                   .join("\n"),
           );
@@ -2100,7 +2131,7 @@ export default async function plugin(bb: BbPluginApi) {
           if (args.length === 0) break;
           await adopt(args, null);
           const current = await publish();
-          return reply(current.catalog, `Принято в каталог: ${args.join(", ")}`);
+          return reply(current.catalog, tp("Принято в каталог: {0}", args.join(", ")));
         }
         case "ignore": {
           if (args.length === 0) break;
@@ -2108,7 +2139,7 @@ export default async function plugin(bb: BbPluginApi) {
           for (const name of args) ignored.add(name);
           await bb.storage.kv.set("ignored", [...ignored]);
           await publish();
-          return reply({ ignored: [...ignored] }, `Скрыто: ${args.join(", ")}`);
+          return reply({ ignored: [...ignored] }, tp("Скрыто: {0}", args.join(", ")));
         }
         case "unignore": {
           if (args.length === 0) break;
@@ -2116,14 +2147,14 @@ export default async function plugin(bb: BbPluginApi) {
           for (const name of args) ignored.delete(name);
           await bb.storage.kv.set("ignored", [...ignored]);
           await publish();
-          return reply({ ignored: [...ignored] }, `Возвращено: ${args.join(", ")}`);
+          return reply({ ignored: [...ignored] }, tp("Возвращено: {0}", args.join(", ")));
         }
         case "plan": {
           const ops = await planOps(hostId, true);
           return reply(
             ops.map(({ server: _server, ...rest }) => rest),
             ops.length === 0
-              ? "Всё синхронно."
+              ? t("Всё синхронно.")
               : ops
                   .map((op) => `${op.hostName} / ${op.kind}: ${op.action} ${op.name} (${op.reason})`)
                   .join("\n"),
@@ -2133,7 +2164,7 @@ export default async function plugin(bb: BbPluginApi) {
           const result = await runSync(hostId, dryRun, withDifferent);
           return reply(
             result,
-            `${dryRun ? "Пробный запуск. " : ""}Применено: ${result.applied}, ошибок: ${result.failed}` +
+            `${dryRun ? t("Пробный запуск. ") : ""}Применено: ${result.applied}, ошибок: ${result.failed}` +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
           );
         }
@@ -2142,11 +2173,11 @@ export default async function plugin(bb: BbPluginApi) {
           if (name === undefined || args.length !== 1) break;
           const catalog = await readCatalog();
           if (!catalog.some((entry) => entry.name === name)) {
-            return { exitCode: 1, stderr: `В каталоге нет записи ${name}.` };
+            return { exitCode: 1, stderr: tp("В каталоге нет записи {0}.", name) };
           }
           await writeCatalog(catalog.filter((entry) => entry.name !== name));
           const current = await publish();
-          return reply(current.catalog, `Убрано из каталога: ${name}. На машинах не тронуто.`);
+          return reply(current.catalog, tp("Убрано из каталога: {0}. На машинах не тронуто.", name));
         }
         case "remove": {
           const name = args[0];
@@ -2155,7 +2186,7 @@ export default async function plugin(bb: BbPluginApi) {
           if (dryRun) {
             return reply(
               result,
-              `Пробный запуск. Затронуло бы записей: ${result.removed}` +
+              tp("Пробный запуск. Затронуло бы записей: {0}", result.removed) +
                 (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
             );
           }
@@ -2167,7 +2198,7 @@ export default async function plugin(bb: BbPluginApi) {
           await publish();
           return reply(
             result,
-            `Удалено записей: ${result.removed}, ошибок: ${result.failed}` +
+            tp("Удалено записей: {0}, ошибок: {1}", result.removed, result.failed) +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
           );
         }
@@ -2180,13 +2211,13 @@ export default async function plugin(bb: BbPluginApi) {
             .map((item) => {
               const machine = current.hosts.find((host) => host.hostId === item.hostId)?.name ?? item.hostId;
               const status = item.ok
-                ? `отвечает${item.tools === null ? "" : `, инструментов ${item.tools}`}`
-                : `не отвечает: ${item.error ?? "ошибка"}`;
-              return `  ${item.name} (${machine} / ${item.kind}) — ${status}, ${item.durationMs} мс`;
+                ? `${t("отвечает")}${item.tools === null ? "" : tp(", инструментов {0}", item.tools)}`
+                : `не отвечает: ${item.error ?? t("ошибка")}`;
+              return `  ${item.name} (${machine} / ${item.kind}) — ${status}, ${tp("{0} мс", item.durationMs)}`;
             });
           return reply(
             current.probes,
-            `Проверено ${result.checked}, не ответили ${result.failed}` +
+            tp("Проверено {0}, не ответили {1}", result.checked, result.failed) +
               (lines.length === 0 ? "" : `\n${lines.join("\n")}`),
           );
         }
@@ -2197,8 +2228,8 @@ export default async function plugin(bb: BbPluginApi) {
           const result = await runSetEnabled(name, hostId, command === "enable");
           return reply(
             result,
-            `${command === "enable" ? "Включено" : "Выключено"} в ${result.changed} конфигах` +
-              (result.skipped === 0 ? "" : `, пропущено ${result.skipped} (формат без флага выключения)`) +
+            `${command === "enable" ? t("Включено") : t("Выключено")} в ${result.changed} конфигах` +
+              (result.skipped === 0 ? "" : tp(", пропущено {0} (формат без флага выключения)", result.skipped)) +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
           );
         }
@@ -2207,13 +2238,13 @@ export default async function plugin(bb: BbPluginApi) {
           if (mode !== "on" && mode !== "off") break;
           await bb.storage.kv.set("autoSync", mode === "on");
           await publish();
-          return reply({ autoSync: mode === "on" }, `Автосинхронизация ${mode === "on" ? "включена" : "выключена"}`);
+          return reply({ autoSync: mode === "on" }, `Автосинхронизация ${mode === "on" ? t("включена") : t("выключена")}`);
         }
         case "gateway-add": {
           const file = args[0];
           if (file === undefined || args.length !== 1) break;
           if (hostId === null) {
-            return { exitCode: 1, stderr: "Укажите машину: --host <id>" };
+            return { exitCode: 1, stderr: t("Укажите машину: --host <id>") };
           }
           let text: string;
           try {
@@ -2221,17 +2252,34 @@ export default async function plugin(bb: BbPluginApi) {
           } catch (cause) {
             return {
               exitCode: 1,
-              stderr: `Не удалось прочитать ${file}: ${cause instanceof Error ? cause.message : String(cause)}`,
+              stderr: tp("Не удалось прочитать {0}: {1}", file, cause instanceof Error ? cause.message : String(cause)),
             };
           }
           const result = await runGatewayAdd(hostId, text);
           await publish();
           return reply(
             result,
-            `За шлюз добавлено: ${result.added}` +
-              (result.replaced.length > 0 ? `, заменены: ${result.replaced.join(", ")}` : "") +
-              (result.backups.length > 0 ? `\nБэкап: ${result.backups.join(", ")}` : "") +
+            tp("За шлюз добавлено: {0}", result.added) +
+              (result.replaced.length > 0 ? tp(", заменены: {0}", result.replaced.join(", ")) : "") +
+              (result.backups.length > 0 ? `\n${tp("Бэкап: {0}", result.backups.join(", "))}` : "") +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
+          );
+        }
+        case "lang": {
+          const next = args[0];
+          if (next === undefined) {
+            return reply({ lang: currentLang }, tp(t("Язык: {0}. Переключить: bb tools lang ru|en"), currentLang));
+          }
+          if (!isLang(next) || args.length !== 1) {
+            return { exitCode: 1, stderr: t("Укажите язык: ru или en") };
+          }
+          currentLang = next;
+          setLang(next);
+          await bb.storage.kv.set("lang", next);
+          await publish();
+          return reply(
+            { lang: next },
+            t("Язык переключён. Подписи настроек и команд обновятся после перезагрузки плагина."),
           );
         }
         case "skills": {
@@ -2243,19 +2291,19 @@ export default async function plugin(bb: BbPluginApi) {
             const lines = current.skillCanon.map((row) => {
               const cells = row.hosts
                 .map((item, index) => {
-                  const mark = item.state === "same" ? "есть" : item.state === "differs" ? "отличается" : "нет";
+                  const mark = item.state === "same" ? t("есть") : item.state === "differs" ? t("отличается") : t("нет");
                   return `${names[index] ?? item.hostId}: ${mark}`;
                 })
                 .join("  ");
-              return `${row.name}${row.fromPlugin ? " (плагин)" : ""}  ${cells}`;
+              return `${row.name}${row.fromPlugin ? t(" (плагин)") : ""}  ${cells}`;
             });
             const gaps = current.skillCanon.filter((row) => row.hosts.some((item) => item.state === "missing")).length;
             const differs = current.skillCanon.filter((row) => row.hosts.some((item) => item.state === "differs")).length;
             return reply(
               current.skillCanon,
               current.skillCanon.length === 0
-                ? "Канон пуст или машины ещё не просканированы."
-                : `${lines.join("\n")}\n\nВсего ${current.skillCanon.length}; не на всех машинах: ${gaps}; расходятся: ${differs}`,
+                ? t("Канон пуст или машины ещё не просканированы.")
+                : `${lines.join("\n")}\n\n${tp("Всего {0}; не на всех машинах: {1}; расходятся: {2}", current.skillCanon.length, gaps, differs)}`,
             );
           }
           const rows = current.skills
@@ -2266,7 +2314,7 @@ export default async function plugin(bb: BbPluginApi) {
           return reply(
             rows,
             rows.length === 0
-              ? "Скиллы вне канона не найдены."
+              ? t("Скиллы вне канона не найдены.")
               : rows
                   .map(
                     (row) =>
@@ -2279,7 +2327,7 @@ export default async function plugin(bb: BbPluginApi) {
           const [locationId, name] = args;
           if (locationId === undefined || name === undefined || args.length !== 2) break;
           if (hostId === null) {
-            return { exitCode: 1, stderr: "Укажите машину: --host <id>" };
+            return { exitCode: 1, stderr: t("Укажите машину: --host <id>") };
           }
           const mode = argv.includes("--unlink")
             ? "unlink"
@@ -2292,19 +2340,19 @@ export default async function plugin(bb: BbPluginApi) {
                   : "adopt";
           const outcome = await host.call("skills_adopt", { locationId, name, mode }, { hostId });
           if (!outcome.ok) {
-            return { exitCode: 1, stderr: `Скилл ${name}: ${outcome.error ?? "не удалось"}` };
+            return { exitCode: 1, stderr: `Скилл ${name}: ${outcome.error ?? t("не удалось")}` };
           }
           await scanAll(hostId);
           const current = await publish();
           const done =
             mode === "unlink"
-              ? "ссылка убрана"
+              ? t("ссылка убрана")
               : mode === "delete"
-                ? "копия удалена"
+                ? t("копия удалена")
                 : mode === "link"
-                  ? "копия заменена каноном"
-                  : "перенесён в ~/.agents/skills";
-          return reply({ ok: true }, `Скилл ${name}: ${done} (${current.badge} в ожидании)`);
+                  ? t("копия заменена каноном")
+                  : t("перенесён в ~/.agents/skills");
+          return reply({ ok: true }, tp("Скилл {0}: {1} ({2} в ожидании)", name, done, current.badge));
         }
         case "skills-fanout": {
           const result = await runSkillsFanOut(hostId, dryRun, argv.includes("--all") ? true : undefined);
@@ -2315,13 +2363,13 @@ export default async function plugin(bb: BbPluginApi) {
             .join(", ");
           return reply(
             result,
-            (dryRun ? "Пробный запуск. " : "") +
+            (dryRun ? t("Пробный запуск. ") : "") +
               (result.ops.length === 0
-                ? "Дома уже совпадают с каноном."
-                : `${summary}. Готово: ${result.applied}, ошибок: ${result.failed}`) +
+                ? t("Дома уже совпадают с каноном.")
+                : `${summary}. ${tp("Готово: {0}, ошибок: {1}", result.applied, result.failed)}`) +
               (result.skippedByPlugin.length === 0
                 ? ""
-                : `\nОтдаёт плагин, не дублируем: ${result.skippedByPlugin.join(", ")}`) +
+                : `\n${tp("Отдаёт плагин, не дублируем: {0}", result.skippedByPlugin.join(", "))}`) +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
           );
         }
@@ -2330,11 +2378,11 @@ export default async function plugin(bb: BbPluginApi) {
           return reply(
             result,
             result.backups.length === 0
-              ? "Архив пуст."
+              ? t("Архив пуст.")
               : result.backups
                   .map(
                     (item) =>
-                      `${item.at}  ${item.name}  ${item.unique ? "уникальная" : "дубль"}  ${item.files} файлов  ${item.hostName}  ${item.reason}\n  id: ${item.id}`,
+                      `${item.at}  ${item.name}  ${item.unique ? t("уникальная") : t("дубль")}  ${item.files} файлов  ${item.hostName}  ${item.reason}\n  id: ${item.id}`,
                   )
                   .join("\n"),
           );
@@ -2342,17 +2390,17 @@ export default async function plugin(bb: BbPluginApi) {
         case "skills-restore": {
           const id = args[0];
           if (id === undefined || args.length !== 1) break;
-          if (hostId === null) return { exitCode: 1, stderr: "Укажите машину: --host <id>" };
+          if (hostId === null) return { exitCode: 1, stderr: t("Укажите машину: --host <id>") };
           const result = await host.call("skills_backup_restore", { id }, { hostId });
-          if (!result.ok) return { exitCode: 1, stderr: result.error ?? "не удалось восстановить снимок" };
+          if (!result.ok) return { exitCode: 1, stderr: result.error ?? t("не удалось восстановить снимок") };
           await scanAll(hostId);
           await publish();
-          return reply(result, result.message ?? "Снимок восстановлен");
+          return reply(result, result.message ?? t("Снимок восстановлен"));
         }
         case "skills-sync": {
           const result = await (async () => {
             const remote = config.skillsSyncRemote.trim();
-            if (remote === "") throw new Error("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)");
+            if (remote === "") throw new Error(t("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)"));
             const hostsList = await bb.sdk.hosts.list();
             const targets = hostsList.filter(
               (candidate) => (hostId === null || candidate.id === hostId) && candidate.status === "connected",
@@ -2372,7 +2420,7 @@ export default async function plugin(bb: BbPluginApi) {
           await publish();
           return reply(
             result,
-            `Синк скиллов: машин ${result.synced}` +
+            tp("Синк скиллов: машин {0}", result.synced) +
               (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
           );
         }
@@ -2386,7 +2434,7 @@ export default async function plugin(bb: BbPluginApi) {
           }
 
           const lines = [
-            `Плагины CLI-агентов: ${current.plugins.length} всего по ${current.hosts.length} машинам`,
+            tp("Плагины CLI-агентов: {0} всего по {1} машинам", current.plugins.length, current.hosts.length),
             "",
           ];
 
@@ -2394,7 +2442,7 @@ export default async function plugin(bb: BbPluginApi) {
             lines.push(`${agentLabel} (${items.length}):`);
             for (const p of items) {
               const hostsInfo = Object.entries(p.hosts)
-                .map(([_, h]) => `${h.hostName}: ${h.installed ? `установлен${h.version ? ` v${h.version}` : ""}` : "—"}`)
+                .map(([_, h]) => `${h.hostName}: ${h.installed ? `${t("установлен")}${h.version ? ` v${h.version}` : ""}` : "—"}`)
                 .join("; ");
               lines.push(`  • ${p.name} [${p.id}]${p.marketplace ? ` (${p.marketplace})` : ""}\n      ${hostsInfo}`);
             }
@@ -2406,23 +2454,23 @@ export default async function plugin(bb: BbPluginApi) {
         case "opencode": {
           const current = await overview();
           const lines = [
-            `OpenCode: машин ${current.opencode.hosts.length}, провайдеров ${current.opencode.providers.length}, расхождений ${current.opencode.drift.length}`,
+            tp("OpenCode: машин {0}, провайдеров {1}, расхождений {2}", current.opencode.hosts.length, current.opencode.providers.length, current.opencode.drift.length),
             "",
-            "Машины:",
+            t("Машины:"),
             ...current.opencode.hosts.map((h) =>
-              `  • ${h.hostName}: model=${h.model ?? "—"} small=${h.smallModel ?? "—"} активны=[${h.enabledProviders.join(", ")}] (${h.configPath ?? "нет конфига"})`
+              `  • ${h.hostName}: model=${h.model ?? "—"} small=${h.smallModel ?? "—"} ${t("активны")}=[${h.enabledProviders.join(", ")}] (${h.configPath ?? t("нет конфига")})`
             ),
             "",
-            "Провайдеры:",
+            t("Провайдеры:"),
             ...current.opencode.providers.map((p) => {
               const presence = Object.entries(p.hosts)
-                .map(([_, h]) => `${h.enabled ? "включён" : h.configured ? "настроен" : "нет"}`)
+                .map(([_, h]) => `${h.enabled ? t("включён") : h.configured ? t("настроен") : t("нет")}`)
                 .join(" / ");
-              return `  • ${p.name} (${p.id}): ${presence} ${p.isCanonical ? "[канон]" : ""}${p.isStale ? "[устаревший]" : ""}`;
+              return `  • ${p.name} (${p.id}): ${presence} ${p.isCanonical ? t("[канон]") : ""}${p.isStale ? t("[устаревший]") : ""}`;
             }),
           ];
           if (current.opencode.drift.length > 0) {
-            lines.push("", "Расхождения:");
+            lines.push("", t("Расхождения:"));
             for (const d of current.opencode.drift) {
               const h = current.opencode.hosts.find((x) => x.hostId === d.hostId)?.hostName ?? d.hostId;
               lines.push(`  ⚠ ${h}: ${d.description}`);
@@ -2445,22 +2493,22 @@ export default async function plugin(bb: BbPluginApi) {
           });
           return reply(
             result,
-            `OpenCode sync${dryRun ? " [dry-run]" : ""}: синхронизировано машин ${result.synced}` +
-              (result.errors.length === 0 ? "" : `\nОшибки: ${result.errors.join("\n")}`),
+            `OpenCode sync${dryRun ? " [dry-run]" : ""}: ${tp("синхронизировано машин {0}", result.synced)}` +
+              (result.errors.length === 0 ? "" : `\n${tp("Ошибки: {0}", result.errors.join("\n"))}`),
           );
         }
         case "opencode-clean": {
           const result = await runOpenCodeClean({ hostId, dryRun });
           return reply(
             result,
-            `OpenCode clean${dryRun ? " [dry-run]" : ""}: удалено устаревших провайдеров ${result.removed}` +
-              (result.errors.length === 0 ? "" : `\nОшибки: ${result.errors.join("\n")}`),
+            `OpenCode clean${dryRun ? " [dry-run]" : ""}: ${tp("удалено устаревших провайдеров {0}", result.removed)}` +
+              (result.errors.length === 0 ? "" : `\n${tp("Ошибки: {0}", result.errors.join("\n"))}`),
           );
         }
         case "opencode-set-default": {
           const modelId = args[0];
           if (!modelId) {
-            return { exitCode: 1, stderr: "Укажите id модели: bb tools opencode-set-default <modelId>" };
+            return { exitCode: 1, stderr: t("Укажите id модели: bb tools opencode-set-default <modelId>") };
           }
           const bbUpdated = setBbPreselectedModel(modelId);
           const hostsList = await bb.sdk.hosts.list();
@@ -2477,7 +2525,7 @@ export default async function plugin(bb: BbPluginApi) {
           await publish();
           return reply(
             { modelId, bbUpdated, hostsUpdated },
-            `Предустановленная модель: ${modelId} (BB: ${bbUpdated ? "обновлено" : "пропущено"}, хосты: ${hostsUpdated})`,
+            `Предустановленная модель: ${modelId} (BB: ${bbUpdated ? t("обновлено") : t("пропущено")}, хосты: ${hostsUpdated})`,
           );
         }
       }

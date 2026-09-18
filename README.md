@@ -86,6 +86,12 @@ bb tools opencode-sync     # sync OpenCode from the reference machine
 bb tools opencode-clean    # drop stale OpenCode providers
 ```
 
+## Two languages
+
+The whole plugin speaks Russian and English: the panel, the settings, the CLI output and the messages that come back from the machines. Switch with the **RU / EN** toggle in the panel header or with `bb tools lang ru|en`; the choice is stored per BB instance. Setting and command labels are read when the plugin loads, so they follow the language after the next reload — everything else switches immediately.
+
+Translations live in `i18n.en.ts`, keyed by the Russian original: a missing entry falls back to Russian instead of blanking the screen, and a test fails the build if a new string has no English text.
+
 ## Settings
 
 `bb plugin config agent-tools` — the MetaMCP address, its API key (secret), the namespaces to read, the git remote for the skills canon (secret), and whether to fan out names that a marketplace plugin already provides.
@@ -147,6 +153,12 @@ For development: `bb plugin dev`. Tests and types: `npm test`, `npm run typechec
 ## Команды
 
 Полный список — [в английской части](#commands); названия команд одинаковые.
+
+## Два языка
+
+Плагин целиком говорит по-русски и по-английски: панель, настройки, вывод CLI и сообщения, которые приходят с машин. Переключатель **RU / EN** — в шапке панели, из терминала: `bb tools lang ru|en`. Подписи настроек и команд считываются при загрузке плагина, поэтому меняют язык после перезагрузки; всё остальное переключается сразу.
+
+Переводы лежат в `i18n.en.ts`, ключ — сам русский текст: пропущенная строка покажет русский оригинал, а не пустоту, и тест не даст собрать сборку, если у новой строки нет английского перевода.
 
 ## Настройки
 

@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-agent-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One inventory of MCP servers and agent skills across every BB machine: what is connected where, what is missing, a single skills canon with fan-out, sync and a version archive.",
   "license": "MIT",
   "repository": {
