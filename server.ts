@@ -478,7 +478,9 @@ export default async function plugin(bb: BbPluginApi) {
       default: "",
     },
   });
-  const config = await settings.get();
+  // Настройки читаем в момент использования, а не один раз при старте: иначе
+  //новый ключ, вписанный в интерфейсе, начинал работать только после перезагрузки.
+  const readConfig = () => settings.get();
   const host = bb.hosts.experimental_client({ contract: hostContract });
 
   // ---------------------------------------------------------------- storage
@@ -591,14 +593,15 @@ export default async function plugin(bb: BbPluginApi) {
   let metamcpCache: MetaMcpNamespace[] =
     (await bb.storage.kv.get<MetaMcpNamespace[]>("metamcp")) ?? [];
   async function refreshMetaMcp(): Promise<MetaMcpNamespace[]> {
-    const url = config.metamcpUrl.trim();
-    const key = config.metamcpApiKey.trim();
+    const current = await readConfig();
+    const url = current.metamcpUrl.trim();
+    const key = current.metamcpApiKey.trim();
     if (url === "" || key === "") {
       metamcpCache = [];
       await bb.storage.kv.set("metamcp", metamcpCache);
       return metamcpCache;
     }
-    const namespaces = config.metamcpNamespaces
+    const namespaces = current.metamcpNamespaces
       .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry !== "");
@@ -1121,7 +1124,7 @@ export default async function plugin(bb: BbPluginApi) {
         // "*" означает «исключений нет»: раскатываем канон целиком.
         const result = await host.call(
           "skills_fanout",
-          { pluginNames: (includePluginNames ?? config.skillsFanOutPluginNames) ? ["*"] : [], dryRun },
+          { pluginNames: (includePluginNames ?? (await readConfig()).skillsFanOutPluginNames) ? ["*"] : [], dryRun },
           { hostId: machine.id },
         );
         for (const op of result.ops) {
@@ -1756,7 +1759,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true, message: result.message, overview: await publish() };
     },
     skills_sync: async ({ hostId }) => {
-      const remote = config.skillsSyncRemote.trim();
+      const remote = (await readConfig()).skillsSyncRemote.trim();
       if (remote === "") throw new Error(t("Синк скиллов выключен: не задан git-remote в настройках плагина"));
       const hostsList = await bb.sdk.hosts.list();
       const targets = hostsList.filter(
@@ -1861,7 +1864,7 @@ export default async function plugin(bb: BbPluginApi) {
       const result = await runSync(null, false, false);
       bb.log.info(`auto sync: applied ${result.applied}, failed ${result.failed}`);
     }
-    const skillsRemote = config.skillsSyncRemote.trim();
+    const skillsRemote = (await readConfig()).skillsSyncRemote.trim();
     if (skillsRemote !== "") {
       for (const machine of await bb.sdk.hosts.list()) {
         if (machine.status !== "connected") continue;
@@ -2389,7 +2392,7 @@ export default async function plugin(bb: BbPluginApi) {
         }
         case "skills-sync": {
           const result = await (async () => {
-            const remote = config.skillsSyncRemote.trim();
+            const remote = (await readConfig()).skillsSyncRemote.trim();
             if (remote === "") throw new Error(t("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)"));
             const hostsList = await bb.sdk.hosts.list();
             const targets = hostsList.filter(
