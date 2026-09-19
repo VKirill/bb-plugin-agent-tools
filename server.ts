@@ -2208,6 +2208,9 @@ export default async function plugin(bb: BbPluginApi) {
                 : tp("не отвечает: {0}", item.error ?? t("ошибка"));
               return `  ${item.name} (${machine} / ${item.kind}) — ${status}, ${tp("{0} мс", item.durationMs)}`;
             });
+          if (result.checked === 0) {
+            return reply(current.probes, t("Нечего проверять: серверов на машинах не найдено."));
+          }
           return reply(
             current.probes,
             tp("Проверено {0}, не ответили {1}", result.checked, result.failed) +
@@ -2349,6 +2352,8 @@ export default async function plugin(bb: BbPluginApi) {
         }
         case "skills-fanout": {
           const result = await runSkillsFanOut(hostId, dryRun, argv.includes("--all") ? true : undefined);
+          // Пустой канон и «дома уже совпадают» — разные новости для человека.
+          const canonEmpty = (await overview()).skillCanon.length === 0;
           const byKind = new Map<string, number>();
           for (const op of result.ops) byKind.set(op.kind, (byKind.get(op.kind) ?? 0) + 1);
           const summary = [...byKind]
@@ -2358,7 +2363,9 @@ export default async function plugin(bb: BbPluginApi) {
             result,
             (dryRun ? t("Пробный запуск. ") : "") +
               (result.ops.length === 0
-                ? t("Дома уже совпадают с каноном.")
+                ? canonEmpty
+                  ? t("Канон пуст — раскатывать нечего.")
+                  : t("Дома уже совпадают с каноном.")
                 : `${summary}. ${tp("Готово: {0}, ошибок: {1}", result.applied, result.failed)}`) +
               (result.skippedByPlugin.length === 0
                 ? ""

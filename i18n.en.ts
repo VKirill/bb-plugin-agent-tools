@@ -500,6 +500,13 @@ export const EN: Record<string, string> = {
   "плюс через хаб: {0}": "plus {0} through the hub",
   "пусто": "empty",
 
+  "Пока пусто. Плагин не придумывает серверы сам: настройте MCP-сервер в любом CLI (Claude Code, Codex, OpenCode, Cursor…) и нажмите «Обновить» — он появится в списке «Новые», и оттуда его можно сделать общим для всех машин. Если серверы живут за шлюзом MetaMCP, укажите его адрес и ключ в настройках плагина.":
+    "Nothing here yet. The plugin does not invent servers: configure an MCP server in any CLI (Claude Code, Codex, OpenCode, Cursor…) and press “Refresh” — it shows up under “New”, and from there you can make it the standard for every machine. If your servers live behind a MetaMCP gateway, put its address and key into the plugin settings.",
+  "Нет подключённых машин. Подключите хотя бы одну — плагин читает конфиги CLI прямо на них.":
+    "No machines connected. Connect at least one — the plugin reads the CLI configs on the machines themselves.",
+  "Канон пуст — раскатывать нечего.": "The canon is empty — nothing to lay out.",
+  "Нечего проверять: серверов на машинах не найдено.": "Nothing to check: no servers found on the machines.",
+
   // --- code sample placeholders ------------------------------------------
   "имя-сервера": "server-name",
   "/путь/к/server.js": "/path/to/server.js",

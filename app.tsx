@@ -865,6 +865,12 @@ function DeviceList({
         );
       })}
 
+      {data.hosts.length === 0 ? (
+        <p className="px-2 py-3 text-xs text-muted-foreground">
+          {t("Нет подключённых машин. Подключите хотя бы одну — плагин читает конфиги CLI прямо на них.")}
+        </p>
+      ) : null}
+
       {data.metamcp.length === 0 &&
       !data.hosts.some(
         (machine) => metamcpStdioServers(data, machine.hostId).length > 0,
@@ -1006,9 +1012,14 @@ function CatalogTable({
   }, [data.hosts, machine]);
 
   if (data.catalog.length === 0) {
+    // Пустой каталог бывает двух видов: серверы на машинах уже нашлись и ждут
+    // приёмки — или не нашлось ничего, и совет «примите из списка ниже» упёрся
+    // бы в пустоту. Во втором случае объясняем, с чего начать.
     return (
-      <p className="text-sm text-muted-foreground">
-        {t("Пусто. Примите серверы из списка ниже — они станут общим стандартом для всех машин.")}
+      <p className="max-w-2xl text-sm text-muted-foreground">
+        {data.pending.length > 0
+          ? t("Пусто. Примите серверы из списка ниже — они станут общим стандартом для всех машин.")
+          : t("Пока пусто. Плагин не придумывает серверы сам: настройте MCP-сервер в любом CLI (Claude Code, Codex, OpenCode, Cursor…) и нажмите «Обновить» — он появится в списке «Новые», и оттуда его можно сделать общим для всех машин. Если серверы живут за шлюзом MetaMCP, укажите его адрес и ключ в настройках плагина.")}
       </p>
     );
   }
