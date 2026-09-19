@@ -29,7 +29,7 @@ The source of truth is `~/.agents/skills`. It is a git repository, and it is the
 | `~/.gemini/config/skills` | drop | unused: both copies and links are removed |
 
 - **Canon summary.** The Skills tab opens with a row per skill and a column per machine: present / differs / missing. Same from the shell: `bb tools skills --canon`.
-- **Sync and fan-out.** `bb tools skills-sync` keeps the canon identical on every machine through your own git remote; `bb tools skills-fanout` lays it out inside a machine. Both run hourly on their own.
+- **Sync and fan-out.** `bb tools skills-sync` keeps the canon identical on every machine through your own git remote; `bb tools skills-fanout` lays it out inside a machine. Both are opt-in for the hourly sweep: sync runs once a git remote is set, fan-out once you enable it in the settings. Nothing is moved on a fresh install until you ask.
 - **Version archive.** Anything replaced or deleted is snapshotted to `~/.agents/skills-backups/<name>/<time>/` with the date, machine and reason, and marked *unique* when that content exists nowhere else. Restore any version into the canon in one click, and it travels to the other machines with the next sync.
 - **Two guards against silent loss.** A replacement is cancelled when the losing version has files the winning one does not — that is a different branch of work, not a fresher edit, so a human decides. And a skill missing from a home counts as "deleted by a human" only if the plugin actually put it there.
 
@@ -94,7 +94,7 @@ Translations live in `i18n.en.ts`, keyed by the Russian original: a missing entr
 
 ## Settings
 
-`bb plugin config agent-tools` — the MetaMCP address, its API key (secret), the namespaces to read, the git remote for the skills canon (secret), and whether to fan out names that a marketplace plugin already provides.
+`bb plugin config agent-tools` — the MetaMCP address, its API key (secret), the namespaces to read, the git remote for the skills canon (secret), whether the hourly sweep may lay the canon out, and whether to fan out names that a marketplace plugin already provides.
 
 ## Install and develop
 
@@ -133,7 +133,7 @@ For development: `bb plugin dev`. Tests and types: `npm test`, `npm run typechec
 | `~/.gemini/config/skills` | не используем | убираются и копии, и ссылки |
 
 - **Сводка канона.** Вкладка «Скиллы» открывается таблицей: строка на навык, колонка на машину — есть / отличается / нет. То же в терминале: `bb tools skills --canon`.
-- **Синк и раскатка.** `bb tools skills-sync` держит канон одинаковым на всех машинах через ваш git-remote, `bb tools skills-fanout` раскладывает его внутри машины. Оба раз в час происходят сами.
+- **Синк и раскатка.** `bb tools skills-sync` держит канон одинаковым на всех машинах через ваш git-remote, `bb tools skills-fanout` раскладывает его внутри машины. В часовой обход они попадают только по вашему решению: синк — когда задан git-remote, раскатка — когда включена галочка в настройках. Сразу после установки плагин ничего не перекладывает.
 - **Архив версий.** Всё заменённое и удалённое уходит снимком в `~/.agents/skills-backups/<имя>/<время>/` с датой, машиной и причиной, с пометкой «уникальная», если такого содержимого больше нигде нет. Любая версия возвращается в канон одной кнопкой и следующим синком разъезжается по машинам.
 - **Две защиты от тихой потери.** Замена отменяется, если в проигравшей версии есть файлы, которых нет в победившей: это не свежая правка, а другая ветка работы — решает человек. А исчезновение навыка в доме считается удалением только тогда, когда плагин сам его туда раскладывал.
 
@@ -162,7 +162,7 @@ For development: `bb plugin dev`. Tests and types: `npm test`, `npm run typechec
 
 ## Настройки
 
-`bb plugin config agent-tools` — адрес MetaMCP, API-ключ (секрет), список namespace'ов, git-remote канона навыков (секрет) и переключатель «раскатывать и то, что уже отдают плагины-маркетплейсы».
+`bb plugin config agent-tools` — адрес MetaMCP, API-ключ (секрет), список namespace'ов, git-remote канона навыков (секрет), разрешение раскатывать канон в часовом обходе и переключатель «раскатывать и то, что уже отдают плагины-маркетплейсы».
 
 ## Установка и разработка
 

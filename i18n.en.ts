@@ -507,6 +507,10 @@ export const EN: Record<string, string> = {
   "Канон пуст — раскатывать нечего.": "The canon is empty — nothing to lay out.",
   "Нечего проверять: серверов на машинах не найдено.": "Nothing to check: no servers found on the machines.",
 
+  "Скиллы: раскатывать канон по расписанию": "Skills: lay the canon out on schedule",
+  "Выключено — плагин ничего не перекладывает сам: раскатка только по кнопке «Разложить канон по домам» или командой bb tools skills-fanout. Включите, если хотите, чтобы дома CLI подтягивались за каноном в часовом обходе.":
+    "Off — the plugin never moves anything on its own: fan-out happens only through the “Lay the canon out into the homes” button or the bb tools skills-fanout command. Turn it on to let the hourly sweep keep the CLI homes in step with the canon.",
+
   // --- code sample placeholders ------------------------------------------
   "имя-сервера": "server-name",
   "/путь/к/server.js": "/path/to/server.js",

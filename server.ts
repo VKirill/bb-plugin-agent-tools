@@ -462,6 +462,13 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Через запятую. По умолчанию secondary."),
       default: "secondary",
     },
+    skillsFanOutAuto: {
+      type: "boolean",
+      label: "Скиллы: раскатывать канон по расписанию",
+      description:
+        "Выключено — плагин ничего не перекладывает сам: раскатка только по кнопке «Разложить канон по домам» или командой bb tools skills-fanout. Включите, если хотите, чтобы дома CLI подтягивались за каноном в часовом обходе.",
+      default: false,
+    },
     skillsFanOutPluginNames: {
       type: "boolean",
       label: t("Скиллы: раскатывать и то, что отдают плагины"),
@@ -1879,9 +1886,13 @@ export default async function plugin(bb: BbPluginApi) {
     }
     // Синк выравнивает каноны между машинами, раскатка — дома CLI внутри каждой.
     // Без неё новый скилл лежал бы в каноне, но не попадал ни в одну сессию.
-    const fanOut = await runSkillsFanOut(null, false);
-    if (fanOut.ops.length > 0) {
-      bb.log.info(`skills fan-out: applied ${fanOut.applied}, failed ${fanOut.failed}`);
+    // По расписанию делаем это только по явной галочке: молча перекладывать
+    // чужие папки после установки плагин не должен.
+    if ((await readConfig()).skillsFanOutAuto) {
+      const fanOut = await runSkillsFanOut(null, false);
+      if (fanOut.ops.length > 0) {
+        bb.log.info(`skills fan-out: applied ${fanOut.applied}, failed ${fanOut.failed}`);
+      }
     }
     await publish();
   });
