@@ -873,9 +873,69 @@ function DeviceList({
           <h2 className="mt-4 px-2 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t("Шлюзы")}
           </h2>
+
+          {/* Содержимое хабового namespace одно на все машины: показываем его
+              один раз и подписываем охват, иначе три одинаковых блока читаются
+              как три независимых набора. */}
+          {data.metamcp.map((remote) => {
+            const linked = data.hosts.filter((machine) =>
+              metamcpStdioServers(data, machine.hostId).some(
+                (server) => namespaceOf(server) === remote.namespace,
+              ),
+            );
+            const everywhere = linked.length === data.hosts.length && linked.length > 0;
+            const coverage =
+              linked.length === 0
+                ? t("не подключён ни на одной машине")
+                : everywhere
+                  ? t("есть на всех машинах")
+                  : tp("есть на: {0}", linked.map((machine) => machine.name).join(", "));
+            return (
+              <div key={remote.namespace} className="rounded-md border border-dashed px-2 py-2">
+                <span className="flex items-center gap-2 text-sm">
+                  <Icon name="Cloud" className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{tp("Через хаб · /{0}", remote.namespace)}</span>
+                </span>
+                <span
+                  className={`mt-0.5 block pl-6 text-xs ${
+                    linked.length === 0 ? "text-amber-600" : "text-muted-foreground"
+                  }`}
+                >
+                  {coverage}
+                </span>
+                <ul className="mt-1 space-y-0.5 pl-6">
+                  {remote.error !== null ? (
+                    <li className="text-xs text-destructive">
+                      {t("ошибка")}: {t(remote.error)}
+                    </li>
+                  ) : remote.servers.length === 0 ? (
+                    <li className="text-xs text-muted-foreground">{t("пусто")}</li>
+                  ) : (
+                    remote.servers.map((inner) => (
+                      <li key={inner.name} className="truncate text-xs text-foreground/80">
+                        {inner.name}
+                        <span className="ml-1 text-muted-foreground opacity-70">{inner.tools}</span>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            );
+          })}
+
           {data.hosts.map((machine) => {
             const children = metamcpStdioServers(data, machine.hostId);
             if (children.length === 0) return null;
+            // Ссылки в хабовый namespace уже показаны общим блоком выше —
+            // здесь остаётся только то, что живёт на самой машине.
+            const own = children.filter((server) => {
+              const namespace = namespaceOf(server);
+              return (
+                namespace === null ||
+                !data.metamcp.some((entry) => entry.namespace === namespace)
+              );
+            });
+            const viaHub = children.length - own.length;
             return (
               <div key={machine.hostId} className="rounded-md px-2 py-2">
                 <span className="flex items-center gap-2 text-sm">
@@ -885,53 +945,29 @@ function DeviceList({
                     {machine.name}
                   </span>
                 </span>
-                <ul className="mt-1 space-y-0.5 pl-6">
-                  {children.map((server) => {
-                    const namespace = namespaceOf(server);
-                    const remote =
-                      namespace === null
-                        ? null
-                        : (data.metamcp.find(
-                            (entry) => entry.namespace === namespace,
-                          ) ?? null);
-                    return (
+                {own.length === 0 ? (
+                  <span className="mt-0.5 block pl-6 text-xs text-muted-foreground">
+                    {t("только через хаб")}
+                  </span>
+                ) : (
+                  <ul className="mt-1 space-y-0.5 pl-6">
+                    {own.map((server) => (
                       <li key={server.name} className="text-xs">
                         <span className="flex items-center gap-1.5">
                           <EnabledDot
                             state={server.disabled === true ? "disabled" : "enabled"}
                           />
-                          <span className="truncate text-foreground/80">
-                            {server.name}
-                          </span>
-                          {remote === null ? null : (
-                            <span className="truncate text-muted-foreground">
-                              → /{remote.namespace}
-                            </span>
-                          )}
+                          <span className="truncate text-foreground/80">{server.name}</span>
                         </span>
-                        {remote === null ? null : (
-                          <ul className="space-y-0.5 pl-4">
-                            {remote.error !== null ? (
-                              <li className="text-muted-foreground">
-                                {t("ошибка")}: {remote.error}
-                              </li>
-                            ) : (
-                              remote.servers.map((inner) => (
-                                <li
-                                  key={inner.name}
-                                  className="truncate text-muted-foreground"
-                                >
-                                  {inner.name}
-                                  <span className="ml-1 opacity-60">{inner.tools}</span>
-                                </li>
-                              ))
-                            )}
-                          </ul>
-                        )}
                       </li>
-                    );
-                  })}
-                </ul>
+                    ))}
+                  </ul>
+                )}
+                {viaHub === 0 ? null : (
+                  <span className="mt-1 block pl-6 text-xs text-muted-foreground">
+                    {tp("плюс через хаб: {0}", viaHub)}
+                  </span>
+                )}
               </div>
             );
           })}

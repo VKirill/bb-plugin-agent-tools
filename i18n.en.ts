@@ -492,6 +492,14 @@ export const EN: Record<string, string> = {
   "убрано из дома: нет в каноне": "removed from the home: not in the canon",
   "удалён в bb: удалён в BB": "deleted in BB",
 
+  "Через хаб · /{0}": "Through the hub · /{0}",
+  "есть на всех машинах": "on every machine",
+  "есть на: {0}": "on: {0}",
+  "не подключён ни на одной машине": "not connected on any machine",
+  "только через хаб": "hub only",
+  "плюс через хаб: {0}": "plus {0} through the hub",
+  "пусто": "empty",
+
   // --- code sample placeholders ------------------------------------------
   "имя-сервера": "server-name",
   "/путь/к/server.js": "/path/to/server.js",
