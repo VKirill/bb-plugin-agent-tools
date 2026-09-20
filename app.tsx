@@ -819,12 +819,12 @@ function HostStrip({
     <Tabs
       value={value}
       onValueChange={(next) => onSelect(next === "all" ? null : next)}
-      className="mb-3 max-w-full overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
+      className="mb-3 w-full md:hidden"
     >
-      <TabsList aria-label={t("Устройства")} className="w-max max-w-none overflow-visible">
+      <TabsList aria-label={t("Устройства")} className="flex w-full">
         <TabsTrigger value="all">{t("Все машины")}</TabsTrigger>
         {data.hosts.map((machine) => (
-          <TabsTrigger key={machine.hostId} value={machine.hostId} className="max-w-[9rem] truncate">
+          <TabsTrigger key={machine.hostId} value={machine.hostId}>
             {machine.name}
           </TabsTrigger>
         ))}
