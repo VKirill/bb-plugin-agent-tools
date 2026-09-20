@@ -814,34 +814,22 @@ function HostStrip({
   selected: string | null;
   onSelect: (hostId: string | null) => void;
 }) {
+  const value = selected ?? "all";
   return (
-    <div
-      className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5 md:hidden"
-      role="tablist"
-      aria-label={t("Устройства")}
+    <Tabs
+      value={value}
+      onValueChange={(next) => onSelect(next === "all" ? null : next)}
+      className="mb-3 max-w-full md:hidden"
     >
-      <Button
-        type="button"
-        size="sm"
-        variant={selected === null ? "default" : "outline"}
-        className="shrink-0"
-        onClick={() => onSelect(null)}
-      >
-        {t("Все машины")}
-      </Button>
-      {data.hosts.map((machine) => (
-        <Button
-          key={machine.hostId}
-          type="button"
-          size="sm"
-          variant={selected === machine.hostId ? "default" : "outline"}
-          className="max-w-[10rem] shrink-0 truncate"
-          onClick={() => onSelect(machine.hostId)}
-        >
-          {machine.name}
-        </Button>
-      ))}
-    </div>
+      <TabsList aria-label={t("Устройства")} className="[scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TabsTrigger value="all">{t("Все машины")}</TabsTrigger>
+        {data.hosts.map((machine) => (
+          <TabsTrigger key={machine.hostId} value={machine.hostId} className="max-w-[9rem] min-w-0 truncate">
+            {machine.name}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }
 
