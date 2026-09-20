@@ -416,6 +416,8 @@ export const EN: Record<string, string> = {
     "Specify the model id: bb tools opencode-set-default <modelId>",
   "Снимок восстановлен": "Snapshot restored",
   "Автосинхронизация": "Hourly sweep",
+  "Раскатывать по расписанию": "Lay out on schedule",
+  "Автораскатка {0}": "Scheduled fan-out {0}",
 
   // --- errors from the machines ------------------------------------------
   "не удалось": "failed",

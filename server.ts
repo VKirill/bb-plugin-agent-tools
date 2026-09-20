@@ -110,6 +110,8 @@ const overviewSchema = z.object({
   drift: z.array(driftSchema),
   metamcp: z.array(metamcpSchema),
   autoSync: z.boolean(),
+  /** Раскатка канона скиллов по домам CLI в часовом обходе. */
+  skillsFanOutAuto: z.boolean(),
   /** Язык интерфейса плагина: им же отвечает CLI. */
   lang: z.enum(["ru", "en"]),
   lastScanAt: z.number().nullable(),
@@ -228,6 +230,7 @@ export const rpcContract = defineRpcContract({
     }),
   },
   set_auto_sync: { input: z.object({ enabled: z.boolean() }), output: overviewSchema },
+  set_skills_fanout_auto: { input: z.object({ enabled: z.boolean() }), output: overviewSchema },
   probe: {
     input: z.object({ hostId: z.string().nullable(), name: z.string().nullable() }),
     output: z.object({
@@ -464,9 +467,10 @@ export default async function plugin(bb: BbPluginApi) {
     },
     skillsFanOutAuto: {
       type: "boolean",
-      label: "Скиллы: раскатывать канон по расписанию",
-      description:
+      label: t("Скиллы: раскатывать канон по расписанию"),
+      description: t(
         "Выключено — плагин ничего не перекладывает сам: раскатка только по кнопке «Разложить канон по домам» или командой bb tools skills-fanout. Включите, если хотите, чтобы дома CLI подтягивались за каноном в часовом обходе.",
+      ),
       default: false,
     },
     skillsFanOutPluginNames: {
@@ -744,13 +748,14 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   async function overview(): Promise<Overview> {
-    const [snapshots, catalog, ignored, autoSync, hosts, providers] = await Promise.all([
+    const [snapshots, catalog, ignored, autoSync, hosts, providers, config] = await Promise.all([
       readSnapshots(),
       readCatalog(),
       readIgnored(),
       readAutoSync(),
       bb.sdk.hosts.list(),
       bb.sdk.providers.list().catch(() => []),
+      readConfig(),
     ]);
     const providerIds = new Set(providers.map((provider) => provider.id));
     const byHost = new Map(snapshots.map((snapshot) => [snapshot.hostId, snapshot]));
@@ -1023,6 +1028,7 @@ export default async function plugin(bb: BbPluginApi) {
       metamcp: metamcpCache,
       probes: await readProbes(),
       autoSync,
+      skillsFanOutAuto: config.skillsFanOutAuto,
       lang: currentLang,
       lastScanAt: (await bb.storage.kv.get<number>("lastScanAt")) ?? null,
       lastSyncAt: (await bb.storage.kv.get<number>("lastSyncAt")) ?? null,
@@ -1860,6 +1866,10 @@ export default async function plugin(bb: BbPluginApi) {
     },
     set_auto_sync: async ({ enabled }) => {
       await bb.storage.kv.set("autoSync", enabled);
+      return publish();
+    },
+    set_skills_fanout_auto: async ({ enabled }) => {
+      await settings.experimental_set({ skillsFanOutAuto: enabled });
       return publish();
     },
   });

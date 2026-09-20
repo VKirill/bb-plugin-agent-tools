@@ -216,6 +216,28 @@ function namespaceOf(server: { url?: string }): string | null {
 
 /** Компактный размер кнопок внутри дерева ветвей. */
 const TREE_ACTION = "h-6 px-2 text-xs";
+/** На телефоне нет hover — кнопки строки всегда видны, на десктопе проявляются при наведении. */
+const ROW_ACTIONS =
+  "inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100";
+
+function CollectionFrame({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-border",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 /** Команда локального запуска шлюза — «metamcp run» и подобные. */
 const GATEWAY_LAUNCHER = /metamcp/i;
@@ -554,7 +576,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
               : t("Ничего не нашлось.")}
         </p>
       ) : (
-        <div className="max-h-[32rem] overflow-auto rounded-md border">
+        <div className="max-h-[32rem] max-w-full overflow-auto overscroll-x-contain rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -684,7 +706,7 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
           {rows.length === 0 ? t("Архив пуст: ничего не заменяли и не удаляли.") : t("Уникальных снимков нет — всё это уже есть в каноне.")}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-md border">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -786,6 +808,46 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+function HostStrip({
+  data,
+  selected,
+  onSelect,
+}: {
+  data: Overview;
+  selected: string | null;
+  onSelect: (hostId: string | null) => void;
+}) {
+  return (
+    <div
+      className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5 md:hidden"
+      role="tablist"
+      aria-label={t("Устройства")}
+    >
+      <Button
+        type="button"
+        size="sm"
+        variant={selected === null ? "default" : "outline"}
+        className="shrink-0"
+        onClick={() => onSelect(null)}
+      >
+        {t("Все машины")}
+      </Button>
+      {data.hosts.map((machine) => (
+        <Button
+          key={machine.hostId}
+          type="button"
+          size="sm"
+          variant={selected === machine.hostId ? "default" : "outline"}
+          className="shrink-0"
+          onClick={() => onSelect(machine.hostId)}
+        >
+          {machine.name}
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -1028,8 +1090,8 @@ function CatalogTable({
     <div>
       <StateLegend />
       <EnabledLegend />
-      <div className="overflow-hidden rounded-lg border border-border">
-        <Table>
+      <CollectionFrame>
+        <Table className="min-w-[36rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-3 text-xs font-medium text-muted-foreground">
@@ -1052,7 +1114,7 @@ function CatalogTable({
           <TableBody>
             {data.catalog.map((entry) => (
               <TableRow key={entry.name} className="group">
-                <TableCell className="px-3 py-2.5" title={describe(entry.spec)}>
+                <TableCell className="max-w-[min(18rem,70vw)] px-3 py-2.5" title={describe(entry.spec)}>
                   <div
                     className={cn(
                       "flex items-center gap-1.5 text-sm font-medium",
@@ -1102,7 +1164,7 @@ function CatalogTable({
                   {entry.scope === "local-only" ? t("локальный") : null}
                 </TableCell>
                 <TableCell className="px-2 py-2.5 text-right">
-                  <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <span className={ROW_ACTIONS}>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -1143,7 +1205,7 @@ function CatalogTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </CollectionFrame>
     </div>
   );
 }
@@ -1329,7 +1391,7 @@ function PendingRow({
         </span>
       </TableCell>
       <TableCell className="px-2 py-2.5 text-right">
-        <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <span className="inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
           {item.localOnly ? null : (
             <Button
               size="sm"
@@ -1499,7 +1561,7 @@ function PendingRow({
           <TableCell className="py-0 px-2 text-right">
             {/* Кнопки внутри дерева компактнее обычных: иначе строка ветки
                 вырастает вдвое и ломает ощущение вложенного списка. */}
-            <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <span className="inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
               <Button
                 size="sm"
                 variant="ghost"
@@ -1636,8 +1698,8 @@ function PendingTable({
 
   return (
     <>
-      <div className="overflow-hidden rounded-lg border border-border">
-        <Table className="table-fixed">
+      <CollectionFrame>
+        <Table className="min-w-[36rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-3 text-xs font-medium text-muted-foreground">
@@ -1673,7 +1735,7 @@ function PendingTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </CollectionFrame>
       {items.length > PENDING_LIMIT ? (
         <Button
           variant="ghost"
@@ -1882,7 +1944,7 @@ function AgentRows({
           <TableCell className="py-1.5" />
           <TableCell className="py-1.5" />
           <TableCell className="py-1.5 px-3 text-right">
-            <span className="inline-flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <span className={ROW_ACTIONS}>
               <Button
                 size="sm"
                 variant="ghost"
@@ -1933,8 +1995,8 @@ function MachineTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <Table>
+    <CollectionFrame>
+      <Table className="min-w-[32rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="px-3 text-xs font-medium text-muted-foreground">
@@ -1981,7 +2043,7 @@ function MachineTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </CollectionFrame>
   );
 }
 
@@ -2473,8 +2535,8 @@ function OpenCodeTabContent({
 
         {/* Список подключённых моделей */}
         <div className="pt-1">
-          <div className="overflow-hidden rounded-lg border border-border">
-            <Table>
+          <CollectionFrame>
+            <Table className="min-w-[32rem]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Модель")}</TableHead>
@@ -2531,7 +2593,7 @@ function OpenCodeTabContent({
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 text-xs opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                            className="h-7 text-xs opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
                             disabled={busy}
                             onClick={() => onSetDefaultModel(m.id)}
                           >
@@ -2544,7 +2606,7 @@ function OpenCodeTabContent({
                 })}
               </TableBody>
             </Table>
-          </div>
+          </CollectionFrame>
         </div>
       </div>
 
@@ -2659,8 +2721,8 @@ function OpenCodeTabContent({
       </div>
 
       {/* Матрица провайдеров */}
-      <div className="overflow-hidden rounded-lg border border-border">
-        <Table>
+      <CollectionFrame>
+        <Table className="min-w-[40rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Провайдер")}</TableHead>
@@ -2758,7 +2820,7 @@ function OpenCodeTabContent({
                   );
                 })}
                 <TableCell className="px-2 py-2.5 text-right">
-                  <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <span className="inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                     {p.isStale ? (
                       <Button
                         size="sm"
@@ -2782,7 +2844,7 @@ function OpenCodeTabContent({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </CollectionFrame>
 
       {/* Плагины OpenCode */}
       {(() => {
@@ -2791,8 +2853,8 @@ function OpenCodeTabContent({
         return (
           <div className="space-y-2 pt-2">
             <h2 className="text-sm font-medium">{t("Плагины OpenCode в конфигурации")}</h2>
-            <div className="overflow-hidden rounded-lg border border-border">
-              <Table>
+            <CollectionFrame>
+              <Table className="min-w-[28rem]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Плагин")}</TableHead>
@@ -2828,7 +2890,7 @@ function OpenCodeTabContent({
                   })()}
                 </TableBody>
               </Table>
-            </div>
+            </CollectionFrame>
           </div>
         );
       })()}
@@ -3116,10 +3178,11 @@ function CatalogPage() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
         <DeviceList data={data} selected={selected} onSelect={setSelected} />
-        <div className="min-w-0 flex-1 overflow-y-scroll [scrollbar-gutter:stable]">
-          <div className="mx-auto box-border w-full max-w-7xl px-4 pb-8 pt-3 md:px-5 md:pt-4">
+        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-scroll md:[scrollbar-gutter:stable]">
+          <div className="mx-auto box-border w-full max-w-7xl px-3 pb-8 pt-3 md:px-5 md:pt-4">
+            <HostStrip data={data} selected={selected} onSelect={setSelected} />
             <Tabs
               value={toolTab}
               onValueChange={(value) => setToolTab(value as "mcp" | "skills" | "plugins" | "opencode")}
@@ -3350,7 +3413,7 @@ function CatalogPage() {
                 <SkillCanon data={data} selected={selected} />
                 <Separator className="my-4" />
                 <SkillStateLegend />
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -3374,6 +3437,20 @@ function CatalogPage() {
                   >
                     {t("Разложить канон по домам")}
                   </Button>
+                  <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                    <Switch
+                      checked={data.skillsFanOutAuto}
+                      disabled={busy}
+                      aria-label={tp(
+                        "Автораскатка {0}",
+                        data.skillsFanOutAuto ? t("включена") : t("выключена"),
+                      )}
+                      onCheckedChange={(enabled) =>
+                        act(() => rpc.call("set_skills_fanout_auto", { enabled }))
+                      }
+                    />
+                    {t("Раскатывать по расписанию")}
+                  </label>
                   <span className="text-xs text-muted-foreground">
                     {t("ссылки для Claude Code, зеркало для BB; то, что уже отдают плагины, не дублируется")}
                   </span>
@@ -3438,8 +3515,8 @@ function CatalogPage() {
                       : t("В этом срезе пусто — посмотри другие.")}
                   </p>
                 ) : (
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <Table>
+                <CollectionFrame>
+                  <Table className="min-w-[32rem]">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Скилл")}</TableHead>
@@ -3476,7 +3553,7 @@ function CatalogPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="px-2 py-2.5 text-right">
-                            <span className="inline-flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            <span className="inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                               {(() => {
                                 const action = resolveRowAction(row as unknown as SkillRowT);
                                 if (action === null) return null;
@@ -3504,7 +3581,7 @@ function CatalogPage() {
                       ))}
                     </TableBody>
                   </Table>
-                </div>
+                </CollectionFrame>
                 )}
                   </TabsContent>
                 </Tabs>
