@@ -181,6 +181,7 @@ export const EN: Record<string, string> = {
   "Будет добавлено в шлюз": "Will be added to the gateway",
   "Предустановленная модель для новых чатов (любимая модель)":
     "Preselected model for new chats (the favourite)",
+  "Любимая модель": "Favourite model",
   "свернуть": "collapse",
 
   // --- filters and slices -------------------------------------------------

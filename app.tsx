@@ -652,7 +652,7 @@ function backupSize(bytes: number): string {
  * или убрали. Любую версию можно вернуть в канон — и она разъедется по машинам
  * следующим синком.
  */
-function SkillBackups({ hostId }: { hostId: string | null }) {
+function SkillBackups({ hostId, lastScanAt }: { hostId: string | null; lastScanAt: number | null }) {
   const rpc = useRpc<typeof rpcContract>();
   const [rows, setRows] = useState<SkillBackupRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -670,7 +670,7 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
       (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
     );
   }, [rpc, hostId]);
-  useEffect(load, [load]);
+  useEffect(load, [load, lastScanAt]);
 
   const visible = useMemo(
     () => (rows ?? []).filter((row) => !onlyUnique || row.unique),
@@ -684,15 +684,9 @@ function SkillBackups({ hostId }: { hostId: string | null }) {
 
   return (
     <div className="mt-4">
-      <p className="mb-3 max-w-3xl text-xs text-muted-foreground">
-        {t("Снимок снимается перед каждой заменой и удалением скилла: правилами вкладки «Скиллы», раскаткой канона и приехавшим по синку удалением. «Уникальная» — такого содержимого больше нет ни в каноне, ни в других снимках. Восстановление кладёт версию в канон, а то, что там было, уходит в архив.")}
-      </p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button size="sm" variant={onlyUnique ? "default" : "outline"} onClick={() => setOnlyUnique((value) => !value)}>
           {t("Только уникальные")} · {uniqueCount}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={load} disabled={busy}>
-          {t("Обновить")}
         </Button>
       </div>
       {error === null ? null : (
@@ -794,7 +788,7 @@ function Section({
   action?: ReactNode;
 }) {
   return (
-    <section className="mt-6">
+    <section className="mt-6 first:mt-0">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-foreground">
           {title}
@@ -841,7 +835,7 @@ function HostStrip({
           type="button"
           size="sm"
           variant={selected === machine.hostId ? "default" : "outline"}
-          className="shrink-0"
+          className="max-w-[10rem] shrink-0 truncate"
           onClick={() => onSelect(machine.hostId)}
         >
           {machine.name}
@@ -2334,12 +2328,8 @@ function PluginsTabContent({
 
   return (
     <div className="space-y-4">
-      <p className="max-w-3xl text-xs text-muted-foreground">
-        {t("Строка — один плагин, значок показывает CLI, а колонки машин — где он установлен и какая версия используется. Выберите CLI, чтобы скрыть остальные.")}
-      </p>
-
       <Tabs value={agentFilter} onValueChange={(next) => setAgentFilter(next as typeof agentFilter)}>
-        <TabsList>
+        <TabsList className="flex h-auto min-h-9 flex-wrap">
           <TabsTrigger value="all">
             {t("Все")} <span className="ml-1.5 text-xs text-muted-foreground">{counts.all}</span>
           </TabsTrigger>
@@ -2458,7 +2448,6 @@ function OpenCodeTabContent({
   selected,
   busy,
   onSync,
-  onClean,
   onRemoveProvider,
   onSetDefaultModel,
 }: {
@@ -2466,7 +2455,6 @@ function OpenCodeTabContent({
   selected: string | null;
   busy: boolean;
   onSync: (dryRun?: boolean) => void;
-  onClean: (dryRun?: boolean) => void;
   onRemoveProvider: (hostId: string, providerId: string) => void;
   onSetDefaultModel: (modelId: string) => void;
 }) {
@@ -2509,17 +2497,13 @@ function OpenCodeTabContent({
 
   return (
     <div className="space-y-5">
-      <p className="max-w-3xl text-xs text-muted-foreground">
-        {t("Конфигурация OpenCode (~/.config/opencode/opencode.json(c)): провайдеры, модели и чистота настроек. Эталон — канонический набор: 9Router + DeepSeek + Z.AI Coding Plan + Zen. Кнопка «Синхронизировать» приводит конфигурацию остальных машин к эталону.")}
-      </p>
-
       {/* Любимая / предустановленная модель */}
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-medium flex items-center gap-2">
               <Icon name="AiBrain01" className="size-4 text-emerald-500" />
-              {t("Предустановленная модель для новых чатов (любимая модель)")}
+              {t("Любимая модель")}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {t("Модель, которая автоматически выбирается при создании нового чата в BB и является основной в CLI OpenCode.")}
@@ -2684,10 +2668,8 @@ function OpenCodeTabContent({
         </div>
       ) : null}
 
-      {/* Фильтры и действия */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Tabs value={providerFilter} onValueChange={(next) => setProviderFilter(next as typeof providerFilter)}>
-          <TabsList>
+      <Tabs value={providerFilter} onValueChange={(next) => setProviderFilter(next as typeof providerFilter)}>
+        <TabsList className="flex h-auto min-h-9 flex-wrap">
             <TabsTrigger value="all">
               {t("Все провайдеры")} <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.all}</span>
             </TabsTrigger>
@@ -2697,28 +2679,8 @@ function OpenCodeTabContent({
             <TabsTrigger value="stale">
               {t("Устаревшие")} <span className="ml-1.5 text-xs text-muted-foreground">{providerCounts.stale}</span>
             </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="flex items-center gap-2">
-          {providerCounts.stale > 0 ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => onClean(false)}
-            >
-              {t("Удалить устаревшие")} · {providerCounts.stale}
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => onSync(false)}
-          >
-            {t("Синхронизировать OpenCode")}
-          </Button>
-        </div>
-      </div>
+        </TabsList>
+      </Tabs>
 
       {/* Матрица провайдеров */}
       <CollectionFrame>
@@ -3185,12 +3147,14 @@ function CatalogPage() {
             <HostStrip data={data} selected={selected} onSelect={setSelected} />
             <Tabs
               value={toolTab}
-              onValueChange={(value) => setToolTab(value as "mcp" | "skills" | "plugins" | "opencode")}
+              onValueChange={(value) =>
+                setToolTab(value as "mcp" | "skills" | "backups" | "plugins" | "opencode")
+              }
             >
-              {/* Верхняя строка: название и действия */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h1 className="text-xl font-medium">
+              {/* Шапка: заголовок слева, язык и обновление всегда справа — не делят строку с кнопками вкладки. */}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
+                <div className="min-w-0">
+                  <h1 className="truncate text-xl font-medium">
                     {machine === null ? t("Инструменты агентов") : machine.name}
                   </h1>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -3198,7 +3162,7 @@ function CatalogPage() {
                     {relative(data.lastScanAt)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
                   <div className="flex overflow-hidden rounded-md border" role="group" aria-label={t("Язык интерфейса")}>
                     {(["ru", "en"] as Lang[]).map((option) => (
                       <button
@@ -3227,47 +3191,9 @@ function CatalogPage() {
                   >
                     <Icon name="ArrowReloadHorizontal" className="size-4" />
                   </Button>
-                  {toolTab === "mcp" && gatewayHosts.length !== 0 ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => setGatewayAddOpen(true)}
-                    >
-                      {t("За шлюз…")}
-                    </Button>
-                  ) : null}
-                  {toolTab === "mcp" && toSync > 0 ? (
-                    <Button size="sm" disabled={busy} onClick={() => sync(true)}>
-                      {t("Синхронизировать")} · {toSync}
-                    </Button>
-                  ) : null}
-                  {toolTab === "opencode" ? (
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => syncOpenCode(false)}
-                      >
-                        {t("Синхронизировать OpenCode")}
-                      </Button>
-                      {(data.opencode?.drift?.some((d) => d.type === "stale_provider") ||
-                        (data.opencode?.providers?.some((p) => p.isStale && Object.values(p.hosts).some((h) => h.configured)))) ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => cleanOpenCode(false)}
-                        >
-                          {t("Очистить устаревшие")}
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
-              {/* Отдельная строка для табов: зафиксирована слева, никогда не смещается */}
               <div className="mt-3">
                 <TabsList>
                   <TabsTrigger value="mcp">{t("MCP-серверы")}</TabsTrigger>
@@ -3305,8 +3231,9 @@ function CatalogPage() {
               )}
 
               <Separator className="mt-3" />
-              <TabsContent value="mcp" className="mt-4 space-y-6">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+
+              {toolTab === "mcp" ? (
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
                     {statusItems.map((item, index) => (
                       <span key={item.key} className="flex items-center gap-1.5">
@@ -3316,6 +3243,21 @@ function CatalogPage() {
                     ))}
                   </div>
                   <span className="flex-1" />
+                  {gatewayHosts.length !== 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setGatewayAddOpen(true)}
+                    >
+                      {t("За шлюз…")}
+                    </Button>
+                  ) : null}
+                  {toSync > 0 ? (
+                    <Button size="sm" disabled={busy} onClick={() => sync(true)}>
+                      {t("Синхронизировать")} · {toSync}
+                    </Button>
+                  ) : null}
                   <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     <Switch
                       checked={data.autoSync}
@@ -3328,8 +3270,66 @@ function CatalogPage() {
                     {t("Автосинхронизация")}
                   </label>
                 </div>
+              ) : null}
 
-            <Section title={t("Каталог")} count={data.catalog.length}>
+              {toolTab === "skills" ? (
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      act(() =>
+                        rpc.call("skills_fanout", { hostId: selected, dryRun: false }).then((result) => {
+                          setNotice(
+                            (result.ops.length === 0
+                              ? t("Дома уже совпадают с каноном.")
+                              : tp("Разложено: {0}, ошибок: {1}", result.applied, result.failed)) +
+                              (result.skippedByPlugin.length === 0
+                                ? ""
+                                : `\n${tp("Отдаёт плагин, не дублируем: {0}", result.skippedByPlugin.length)}`) +
+                              (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
+                          );
+                          return result.overview;
+                        }),
+                      )
+                    }
+                  >
+                    {t("Разложить канон по домам")}
+                  </Button>
+                  <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                    <Switch
+                      checked={data.skillsFanOutAuto}
+                      disabled={busy}
+                      aria-label={tp(
+                        "Автораскатка {0}",
+                        data.skillsFanOutAuto ? t("включена") : t("выключена"),
+                      )}
+                      onCheckedChange={(enabled) =>
+                        act(() => rpc.call("set_skills_fanout_auto", { enabled }))
+                      }
+                    />
+                    {t("Раскатывать по расписанию")}
+                  </label>
+                </div>
+              ) : null}
+
+              {toolTab === "opencode" ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button size="sm" disabled={busy} onClick={() => syncOpenCode(false)}>
+                    {t("Синхронизировать OpenCode")}
+                  </Button>
+                  {data.opencode?.drift?.some((d) => d.type === "stale_provider") ||
+                  data.opencode?.providers?.some((p) => p.isStale && Object.values(p.hosts).some((h) => h.configured)) ? (
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => cleanOpenCode(false)}>
+                      {t("Очистить устаревшие")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <TabsContent value="mcp" className="mt-4 space-y-6">
+            <Section title={t("Каталог")} count={data.catalog.length || undefined}>
               <CatalogTable
                 data={data}
                 selected={selected}
@@ -3407,59 +3407,15 @@ function CatalogPage() {
             )}
               </TabsContent>
               <TabsContent value="skills" className="mt-4">
-                <p className="mb-2 max-w-3xl text-xs text-muted-foreground">
-                  {t("Источник правды — канон ~/.agents/skills: его читают Codex, Cursor и OpenCode сами, а ~/.claude/skills получает симлинки, потому что Claude Code читает только свой дом. Папку ~/.bb/skills правила не трогают: у BB свой реестр, и туда попадают только реальные папки — симлинк оттуда исчезает из списка навыков BB. Папку ~/.gemini/config/skills не используем. «Применить все правила» разбирает видимый срез: новые уходят в канон, копии удаляются или заменяются симлинком, расходящиеся решаются по дате файлов скилла, равные даты остаются тебе. Всё заменённое и удалённое лежит во вкладке «Архив» и восстанавливается оттуда.")}
-                </p>
                 <SkillCanon data={data} selected={selected} />
                 <Separator className="my-4" />
                 <SkillStateLegend />
-                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() =>
-                      act(() =>
-                        rpc.call("skills_fanout", { hostId: selected, dryRun: false }).then((result) => {
-                          setNotice(
-                            (result.ops.length === 0
-                              ? t("Дома уже совпадают с каноном.")
-                              : tp("Разложено: {0}, ошибок: {1}", result.applied, result.failed)) +
-                              (result.skippedByPlugin.length === 0
-                                ? ""
-                                : `\n${tp("Отдаёт плагин, не дублируем: {0}", result.skippedByPlugin.length)}`) +
-                              (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
-                          );
-                          return result.overview;
-                        }),
-                      )
-                    }
-                  >
-                    {t("Разложить канон по домам")}
-                  </Button>
-                  <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-                    <Switch
-                      checked={data.skillsFanOutAuto}
-                      disabled={busy}
-                      aria-label={tp(
-                        "Автораскатка {0}",
-                        data.skillsFanOutAuto ? t("включена") : t("выключена"),
-                      )}
-                      onCheckedChange={(enabled) =>
-                        act(() => rpc.call("set_skills_fanout_auto", { enabled }))
-                      }
-                    />
-                    {t("Раскатывать по расписанию")}
-                  </label>
-                  <span className="text-xs text-muted-foreground">
-                    {t("ссылки для Claude Code, зеркало для BB; то, что уже отдают плагины, не дублируется")}
-                  </span>
-                </div>
                 <Tabs
+                  className="mt-3"
                   value={skillFilter}
                   onValueChange={(next) => setSkillFilter(next as SkillFilterKey)}
                 >
-                  <TabsList>
+                  <TabsList className="flex h-auto min-h-9 flex-wrap">
                     {SKILL_FILTERS.map((option) => (
                       <TabsTrigger key={option.key} value={option.key} title={option.hint}>
                         {option.label}
@@ -3587,7 +3543,7 @@ function CatalogPage() {
                 </Tabs>
               </TabsContent>
               <TabsContent value="backups" className="mt-4">
-                <SkillBackups hostId={selected} />
+                <SkillBackups hostId={selected} lastScanAt={data.lastScanAt} />
               </TabsContent>
               <TabsContent value="plugins" className="mt-4">
                 <PluginsTabContent data={data} selected={selected} />
@@ -3598,7 +3554,6 @@ function CatalogPage() {
                   selected={selected}
                   busy={busy}
                   onSync={syncOpenCode}
-                  onClean={cleanOpenCode}
                   onRemoveProvider={removeOpenCodeProvider}
                   onSetDefaultModel={setDefaultModel}
                 />
