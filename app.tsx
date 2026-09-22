@@ -30,7 +30,7 @@ import {
   type SkillRow as SkillRowT,
 } from "./skills";
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
-import { t, tp, plural, setLang, setDictionary, type Lang } from "./i18n";
+import { t, tp, plural, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, type Lang } from "./i18n";
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
@@ -2849,7 +2849,7 @@ function OpenCodeTabContent({
 }
 
 function CatalogPage() {
-  const { rpc, data, error, busy, act } = useOverview();
+  const { rpc, data, error, busy, act, report } = useOverview();
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingFilter, setPendingFilter] = useState<PendingFilterKey>("new");
@@ -3266,25 +3266,42 @@ function CatalogPage() {
                     size="sm"
                     variant="outline"
                     disabled={busy}
-                    onClick={() =>
-                      act(() =>
-                        rpc.call("skills_fanout", { hostId: selected, dryRun: false }).then((result) => {
-                          setNotice(
-                            (result.ops.length === 0
-                              ? t("Дома уже совпадают с каноном.")
-                              : tp("Разложено: {0}, ошибок: {1}", result.applied, result.failed)) +
-                              (result.skippedByPlugin.length === 0
-                                ? ""
-                                : `\n${tp("Отдаёт плагин, не дублируем: {0}", result.skippedByPlugin.length)}`) +
-                              (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
-                          );
+                    onClick={() => {
+                      void (async () => {
+                        let alertText: string | null = null;
+                        await act(async () => {
+                          const result = await rpc.call("skills_fanout", { hostId: selected, dryRun: false });
+                          const text = describeRollout({
+                            dryRun: false,
+                            remoteConfigured: result.remoteConfigured,
+                            canonEmpty: result.overview.skillCanon.length === 0,
+                            notOnAllMachines: countSkillsNotOnAllMachines(result.overview.skillCanon),
+                            synced: result.synced,
+                            syncFailed: result.syncFailed,
+                            applied: result.applied,
+                            failed: result.failed,
+                            skippedByPlugin: result.skippedByPlugin,
+                            errors: result.errors,
+                          });
+                          if (result.failed > 0 || result.syncFailed > 0) {
+                            alertText = text;
+                            setNotice(null);
+                          } else {
+                            setNotice(text);
+                          }
                           return result.overview;
-                        }),
-                      )
-                    }
+                        });
+                        if (alertText !== null) report(alertText);
+                      })();
+                    }}
                   >
                     {t("Разложить канон по домам")}
                   </Button>
+                  {data.skillsSyncRemoteConfigured ? null : (
+                    <span className="text-xs text-muted-foreground">
+                      {t("Раскатка действует внутри каждой машины")}
+                    </span>
+                  )}
                   <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     <Switch
                       checked={data.skillsFanOutAuto}

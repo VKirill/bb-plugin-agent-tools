@@ -65,3 +65,74 @@ export function plural(count: number, forms: [string, string, string]): string {
   if (ones >= 2 && ones <= 4) return `${count} ${forms[1]}`;
   return `${count} ${forms[2]}`;
 }
+
+/** Числа и флаги одного шага «синк канона → раскатка домов» — для CLI и экрана. */
+export type RolloutDescription = {
+  dryRun: boolean;
+  remoteConfigured: boolean;
+  canonEmpty: boolean;
+  /** Сколько скиллов канона нет хотя бы на одной машине. */
+  notOnAllMachines: number;
+  synced: number;
+  syncFailed: number;
+  applied: number;
+  failed: number;
+  skippedByPlugin: string[];
+  errors: string[];
+};
+
+/**
+ * Текст результата раскатки: один и тот же в CLI и в notice/alert экрана.
+ * Живёт рядом с t/tp/plural: node-тесты импортируют i18n.ts, а skills.ts
+ * остаётся без runtime-импортов — иначе падают fanout/skills тесты.
+ */
+export function describeRollout(input: RolloutDescription): string {
+  const ops = input.applied + input.failed;
+  const lines: string[] = [];
+  const intraMachineRemoteHint = t(
+    "кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках",
+  );
+
+  if (input.dryRun && input.remoteConfigured) {
+    lines.push(
+      tp("Синк канона не выполнялся. План раскладки: {0}, ошибок {1}", input.applied, input.failed),
+    );
+  } else if (ops === 0 && input.canonEmpty && input.syncFailed === 0 && input.errors.length === 0) {
+    lines.push(t("Канон пуст"));
+  } else if (input.remoteConfigured) {
+    lines.push(
+      tp(
+        "Канон синхронизирован: машин {0}, ошибок {1}. Разложено: {2}, ошибок {3}",
+        input.synced,
+        input.syncFailed,
+        input.applied,
+        input.failed,
+      ),
+    );
+  } else if (ops === 0 && input.notOnAllMachines > 0) {
+    lines.push(
+      tp(
+        "{0} есть не на всех машинах; кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках",
+        plural(input.notOnAllMachines, ["скилл", "скилла", "скиллов"]),
+      ),
+    );
+  } else if (ops === 0) {
+    lines.push(t("Дома уже совпадают с каноном."));
+  } else {
+    lines.push(`${tp("Разложено: {0}, ошибок: {1}", input.applied, input.failed)}. ${intraMachineRemoteHint}`);
+  }
+
+  if (input.skippedByPlugin.length > 0) {
+    lines.push(tp("Отдаёт плагин, не дублируем: {0}", input.skippedByPlugin.join(", ")));
+  }
+  if (input.errors.length > 0) lines.push(input.errors.join("\n"));
+  const body = lines.join("\n");
+  return input.dryRun ? t("Пробный запуск. ") + body : body;
+}
+
+/** Сколько имён канона отсутствуют хотя бы на одной машине сводки. */
+export function countSkillsNotOnAllMachines(
+  skillCanon: { hosts: { state: string }[] }[],
+): number {
+  return skillCanon.filter((row) => row.hosts.some((item) => item.state === "missing")).length;
+}

@@ -219,6 +219,19 @@ export const EN: Record<string, string> = {
   "Уникальных снимков нет — всё это уже есть в каноне.":
     "No unique snapshots — all of this already exists in the canon.",
   "Дома уже совпадают с каноном.": "The homes already match the canon.",
+  "Канон пуст": "The canon is empty",
+  "{0} есть не на всех машинах; кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках":
+    "{0} are missing on some machines; this button lays the canon out only inside each machine — set the git-sync remote in settings to copy it across machines",
+  "Канон синхронизирован: машин {0}, ошибок {1}. Разложено: {2}, ошибок {3}":
+    "Canon synced: {0} machines, {1} failed. Laid out: {2}, failed: {3}",
+  "Синк канона не выполнялся. План раскладки: {0}, ошибок {1}":
+    "Canon sync was not run. Lay-out plan: {0}, failed: {1}",
+  "кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках":
+    "this button lays the canon out only inside each machine — set the git-sync remote in settings to copy it across machines",
+  "Раскатка действует внутри каждой машины": "Lay-out works inside each machine",
+  "скилл": "skill",
+  "скилла": "skills",
+  "скиллов": "skills",
   "На этой машине не обнаружено ни одного CLI.": "No CLI found on this machine.",
   "Машина не на связи или ещё не сканировалась": "The machine is offline or has not been scanned yet",
 

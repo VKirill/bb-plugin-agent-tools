@@ -41,7 +41,7 @@ test("склонения: три формы по-русски, две по-ан�
 
 test("каждая строка интерфейса и CLI переведена", () => {
   const keys = new Set<string>();
-  for (const file of ["app.tsx", "server.ts"]) {
+  for (const file of ["app.tsx", "server.ts", "i18n.ts"]) {
     const source = readFileSync(path.join(root, file), "utf8");
     // В исходнике переносы записаны как \n — в ключе это один символ.
     const unescape = (value: string) => value.replace(/\\n/g, "\n");
