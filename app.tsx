@@ -76,14 +76,40 @@ const PENDING_LIMIT = 12;
 /** Снимок архива вместе с машиной, на которой он лежит. */
 type SkillBackupRow = SkillBackup & { hostId: string; hostName: string };
 
+/**
+ * BB can remount a plugin page while keeping the same loaded app module. Keep
+ * the last catalog snapshot and explicit user feedback outside CatalogPage so
+ * a background refresh does not replace the page with a loading screen or
+ * silently dismiss the result/confirmation.
+ */
+const retainedCatalogState: {
+  overview: Overview | null;
+  error: string | null;
+  notice: string | null;
+  fanoutConfirmOpen: boolean;
+} = {
+  overview: null,
+  error: null,
+  notice: null,
+  fanoutConfirmOpen: false,
+};
+
 function useOverview() {
   const rpc = useRpc<typeof rpcContract>();
-  const [data, setData] = useState<Overview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [data, setDataState] = useState<Overview | null>(() => retainedCatalogState.overview);
+  const [error, setErrorState] = useState<string | null>(() => retainedCatalogState.error);
+  const setData = useCallback((next: Overview) => {
+    retainedCatalogState.overview = next;
+    setDataState(next);
+  }, []);
+  const setError = useCallback((next: string | null) => {
+    retainedCatalogState.error = next;
+    setErrorState(next);
+  }, []);
   const [busy, setBusy] = useState(false);
   const report = useCallback((cause: unknown) => {
     setError(cause instanceof Error ? cause.message : String(cause));
-  }, []);
+  }, [setError]);
   const refetch = useCallback(() => {
     rpc.call("overview", null).then((result) => {
       // Язык приходит вместе с данными: t() в дочерних компонентах читает его
@@ -114,7 +140,7 @@ function useOverview() {
     },
     [report],
   );
-  const dismissError = useCallback(() => setError(null), []);
+  const dismissError = useCallback(() => setError(null), [setError]);
   return { rpc, data, error, busy, act, refetch, report, dismissError };
 }
 
@@ -2896,12 +2922,22 @@ function OpenCodeTabContent({
 function CatalogPage() {
   const { rpc, data, error, busy, act, report, dismissError } = useOverview();
   const [selected, setSelected] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNoticeState] = useState<string | null>(() => retainedCatalogState.notice);
+  const setNotice = useCallback((next: string | null) => {
+    retainedCatalogState.notice = next;
+    setNoticeState(next);
+  }, []);
   const [pendingFilter, setPendingFilter] = useState<PendingFilterKey>("new");
   const [gatewayAddOpen, setGatewayAddOpen] = useState(false);
   const [toolTab, setToolTab] = useState<"mcp" | "skills" | "backups" | "plugins" | "opencode">("mcp");
   const [skillFilter, setSkillFilter] = useState<SkillFilterKey>("all");
-  const [fanoutConfirmOpen, setFanoutConfirmOpen] = useState(false);
+  const [fanoutConfirmOpen, setFanoutConfirmOpenState] = useState(
+    () => retainedCatalogState.fanoutConfirmOpen,
+  );
+  const setFanoutConfirmOpen = useCallback((next: boolean) => {
+    retainedCatalogState.fanoutConfirmOpen = next;
+    setFanoutConfirmOpenState(next);
+  }, []);
 
   const syncOpenCode = useCallback((dryRun = false) =>
     act(async () => {
