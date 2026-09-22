@@ -35,7 +35,24 @@ import {
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
 import { computeSkillRows, locationPath } from "./skills";
-import { setLang, setDictionary, t, tp, plural, isLang, describeRollout, countSkillsNotOnAllMachines, type Lang } from "./i18n";
+import {
+  setLang,
+  setDictionary,
+  t,
+  tp,
+  plural,
+  isLang,
+  describeRollout,
+  countSkillsNotOnAllMachines,
+  summarizeCanonSync,
+  selectFanOutHostIds,
+  SKILLS_HOST_CALL_TIMEOUT_MS,
+  partitionSkillHosts,
+  hostCallFailureReason,
+  disconnectedHostError,
+  callHostTimed,
+  type Lang,
+} from "./i18n";
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
@@ -123,6 +140,7 @@ const overviewSchema = z.object({
       hostId: z.string(),
       hostName: z.string(),
       canonicalPath: z.string(),
+      canonHasGit: z.boolean().default(false),
       rows: z.array(
         z.object({
           name: z.string(),
@@ -532,10 +550,14 @@ export default async function plugin(bb: BbPluginApi) {
     return snapshot;
   }
 
-  async function scanAll(only: string | null): Promise<void> {
+  async function scanAll(only: string | null, skipHostIds: readonly string[] = []): Promise<void> {
     const hosts = await bb.sdk.hosts.list();
+    const skip = new Set(skipHostIds);
     const targets = hosts.filter(
-      (candidate) => (only === null || candidate.id === only) && candidate.status === "connected",
+      (candidate) =>
+        (only === null || candidate.id === only) &&
+        candidate.status === "connected" &&
+        !skip.has(candidate.id),
     );
     await Promise.all(targets.map((machine) => scanHost(machine.id, machine.name)));
     // Скиллы сканируются тем же обходом: это дешёвый readdir по нескольким папкам.
@@ -798,6 +820,7 @@ export default async function plugin(bb: BbPluginApi) {
       hostId: snapshot.hostId,
       hostName: snapshot.hostName,
       canonicalPath: snapshot.scan.canonicalPath,
+      canonHasGit: snapshot.scan.canonHasGit === true,
       rows: computeSkillRows(snapshot.scan.canonicalPath, snapshot.scan.locations)
         .filter((row) => row.state !== "linked")
         // Старые снапшоты в kv не содержат mtime — undefined схемой отвергается.
@@ -1109,11 +1132,17 @@ export default async function plugin(bb: BbPluginApi) {
    * Раскатка канона по домам CLI на выбранных машинах. Имена, которые уже
    * отдают плагины-маркетплейсы, машина считает сама и в дома не дублирует.
    */
-  async function runSkillsFanOut(hostId: string | null, dryRun: boolean, includePluginNames?: boolean) {
+  async function runSkillsFanOut(
+    hostId: string | null,
+    dryRun: boolean,
+    includePluginNames?: boolean,
+    skipHostIds: readonly string[] = [],
+  ) {
     const hostsList = await bb.sdk.hosts.list();
-    const targets = hostsList.filter(
-      (candidate) => (hostId === null || candidate.id === hostId) && candidate.status === "connected",
-    );
+    const { targets: connected, disconnected } = partitionSkillHosts(hostsList, hostId);
+    const allowed = new Set(selectFanOutHostIds(connected.map((item) => item.id), skipHostIds));
+    const targets = connected.filter((item) => allowed.has(item.id));
+    const skipped = connected.filter((item) => !allowed.has(item.id));
     const ops: {
       hostId: string;
       hostName: string;
@@ -1124,21 +1153,38 @@ export default async function plugin(bb: BbPluginApi) {
       ok: boolean;
       error: string | null;
     }[] = [];
-    const skipped = new Set<string>();
+    const skippedPlugin = new Set<string>();
     const errors: string[] = [];
     let applied = 0;
     let failed = 0;
+    const failedCallIds: string[] = [...skipHostIds];
+    for (const machine of disconnected) {
+      if (skipHostIds.includes(machine.id)) continue;
+      failed += 1;
+      errors.push(disconnectedHostError(machine.name));
+    }
+    for (const machine of skipped) {
+      errors.push(
+        `${machine.name}: ${t("раскатка пропущена — синк канона не прошёл")}`,
+      );
+    }
     for (const machine of targets) {
       try {
         // Пустой список = машина считает плагинные имена сама. Спецзначение
         // "*" означает «исключений нет»: раскатываем канон целиком.
-        const result = await host.call(
-          "skills_fanout",
-          { pluginNames: (includePluginNames ?? (await readConfig()).skillsFanOutPluginNames) ? ["*"] : [], dryRun },
-          { hostId: machine.id },
+        const pluginNames = (includePluginNames ?? (await readConfig()).skillsFanOutPluginNames) ? ["*"] : [];
+        const result = await callHostTimed(
+          (timeoutMs) =>
+            host.call(
+              "skills_fanout",
+              { pluginNames, dryRun },
+              { hostId: machine.id, timeoutMs },
+            ),
+          SKILLS_HOST_CALL_TIMEOUT_MS,
         );
         if (result && typeof result === "object" && "ok" in result && result.ok === false) {
           failed += 1;
+          failedCallIds.push(machine.id);
           errors.push(
             `${machine.name}: ${"error" in result && typeof result.error === "string" && result.error ? result.error : t("ошибка")}`,
           );
@@ -1152,18 +1198,19 @@ export default async function plugin(bb: BbPluginApi) {
             errors.push(`${machine.name} · ${op.name}: ${op.error ?? t("ошибка")}`);
           }
         }
-        for (const name of result.skippedByPlugin) skipped.add(name);
+        for (const name of result.skippedByPlugin) skippedPlugin.add(name);
       } catch (cause) {
         failed += 1;
+        failedCallIds.push(machine.id);
         errors.push(`${machine.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     }
-    if (!dryRun) await scanAll(hostId);
+    if (!dryRun) await scanAll(hostId, failedCallIds);
     return {
       applied,
       failed,
       ops: ops.slice(0, 500),
-      skippedByPlugin: [...skipped].sort().slice(0, 500),
+      skippedByPlugin: [...skippedPlugin].sort().slice(0, 500),
       errors: errors.slice(0, 100),
     };
   }
@@ -1175,30 +1222,60 @@ export default async function plugin(bb: BbPluginApi) {
   async function runSkillsCanonSync(hostId: string | null) {
     const remote = (await readConfig()).skillsSyncRemote.trim();
     if (remote === "") {
-      return { remoteConfigured: false, synced: 0, failed: 0, errors: [] as string[] };
+      return {
+        remoteConfigured: false,
+        synced: 0,
+        failed: 0,
+        errors: [] as string[],
+        failedHostIds: [] as string[],
+        okHostIds: [] as string[],
+      };
     }
     const hostsList = await bb.sdk.hosts.list();
-    const targets = hostsList.filter(
-      (candidate) => (hostId === null || candidate.id === hostId) && candidate.status === "connected",
-    );
-    let synced = 0;
-    let failed = 0;
-    const errors: string[] = [];
+    const { targets, disconnected } = partitionSkillHosts(hostsList, hostId);
+    const results: { hostId: string; hostName: string; ok: boolean; error: string | null }[] = [];
+    for (const machine of disconnected) {
+      results.push({
+        hostId: machine.id,
+        hostName: machine.name,
+        ok: false,
+        error: disconnectedHostError(),
+      });
+    }
     for (const machine of targets) {
       try {
-        const result = await host.call("skills_sync", { remote }, { hostId: machine.id });
+        const result = await callHostTimed(
+          (timeoutMs) => host.call("skills_sync", { remote }, { hostId: machine.id, timeoutMs }),
+          SKILLS_HOST_CALL_TIMEOUT_MS,
+        );
         if (result.ok === false) {
-          failed += 1;
-          errors.push(`${machine.name}: ${result.error ?? t("ошибка")}`);
+          results.push({
+            hostId: machine.id,
+            hostName: machine.name,
+            ok: false,
+            error: result.error ?? t("ошибка"),
+          });
         } else {
-          synced += 1;
+          results.push({ hostId: machine.id, hostName: machine.name, ok: true, error: null });
         }
       } catch (cause) {
-        failed += 1;
-        errors.push(`${machine.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        results.push({
+          hostId: machine.id,
+          hostName: machine.name,
+          ok: false,
+          error: hostCallFailureReason(cause),
+        });
       }
     }
-    return { remoteConfigured: true, synced, failed, errors: errors.slice(0, 100) };
+    const summary = summarizeCanonSync(results);
+    return {
+      remoteConfigured: true,
+      synced: summary.synced,
+      failed: summary.failed,
+      errors: summary.errors.slice(0, 100),
+      failedHostIds: summary.failedHostIds,
+      okHostIds: summary.okHostIds,
+    };
   }
 
   /**
@@ -1210,13 +1287,15 @@ export default async function plugin(bb: BbPluginApi) {
     let synced = 0;
     let syncFailed = 0;
     const errors: string[] = [];
+    let skipHostIds: string[] = [];
     if (remoteConfigured && !dryRun) {
       const sync = await runSkillsCanonSync(hostId);
       synced = sync.synced;
       syncFailed = sync.failed;
       errors.push(...sync.errors);
+      skipHostIds = sync.failedHostIds ?? [];
     }
-    const fan = await runSkillsFanOut(hostId, dryRun, includePluginNames);
+    const fan = await runSkillsFanOut(hostId, dryRun, includePluginNames, skipHostIds);
     errors.push(...fan.errors);
     return {
       synced,
@@ -1841,7 +1920,7 @@ export default async function plugin(bb: BbPluginApi) {
       const remote = (await readConfig()).skillsSyncRemote.trim();
       if (remote === "") throw new Error(t("Синк скиллов выключен: не задан git-remote в настройках плагина"));
       const result = await runSkillsCanonSync(hostId);
-      await scanAll(hostId);
+      await scanAll(hostId, result.failedHostIds);
       return { synced: result.synced, failed: result.failed, errors: result.errors, overview: await publish() };
     },
     opencode_sync: async ({ sourceHostId, targetHostId, syncProviders, syncModels, syncEnabled, dryRun }) => {
@@ -1932,16 +2011,19 @@ export default async function plugin(bb: BbPluginApi) {
       const result = await runSync(null, false, false);
       bb.log.info(`auto sync: applied ${result.applied}, failed ${result.failed}`);
     }
+    let sweepSkipHostIds: string[] = [];
     if ((await readConfig()).skillsSyncRemote.trim() !== "") {
       const sync = await runSkillsCanonSync(null);
+      sweepSkipHostIds = sync.failedHostIds ?? [];
       for (const line of sync.errors) bb.log.info(`skills sync failed: ${line}`);
     }
     // Синк выравнивает каноны между машинами, раскатка — дома CLI внутри каждой.
     // Без неё новый скилл лежал бы в каноне, но не попадал ни в одну сессию.
     // По расписанию делаем это только по явной галочке: молча перекладывать
     // чужие папки после установки плагин не должен.
+    // Провал синка на машине — дома на ней не трогаем: иначе разложится устаревший канон.
     if ((await readConfig()).skillsFanOutAuto) {
-      const fanOut = await runSkillsFanOut(null, false);
+      const fanOut = await runSkillsFanOut(null, false, undefined, sweepSkipHostIds);
       if (fanOut.ops.length > 0) {
         bb.log.info(`skills fan-out: applied ${fanOut.applied}, failed ${fanOut.failed}`);
       }
@@ -2460,7 +2542,7 @@ export default async function plugin(bb: BbPluginApi) {
           const remote = (await readConfig()).skillsSyncRemote.trim();
           if (remote === "") throw new Error(t("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)"));
           const result = await runSkillsCanonSync(hostId);
-          await scanAll(hostId);
+          await scanAll(hostId, result.failedHostIds);
           await publish();
           return reply(
             result,

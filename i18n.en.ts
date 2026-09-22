@@ -229,6 +229,15 @@ export const EN: Record<string, string> = {
   "кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках":
     "this button lays the canon out only inside each machine — set the git-sync remote in settings to copy it across machines",
   "Раскатка действует внутри каждой машины": "Lay-out works inside each machine",
+  "Закрыть": "Close",
+  "Результат действия": "Action result",
+  "раскатка пропущена — синк канона не прошёл":
+    "fan-out skipped — canon sync on this machine failed",
+  "машина не ответила за {0} с": "the machine did not respond in {0} s",
+  "машина не на связи": "machine is offline",
+  "Разложить канон на всех машинах?": "Lay the canon out on all machines?",
+  "Выбраны машины:": "Selected machines:",
+  "Запустить": "Run",
   "скилл": "skill",
   "скилла": "skills",
   "скиллов": "skills",

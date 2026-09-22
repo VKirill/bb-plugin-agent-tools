@@ -39,6 +39,7 @@ import { Icon } from "@/components/ui/icon";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -89,7 +90,8 @@ function useOverview() {
       // из модуля, поэтому ставим до первой отрисовки.
       setLang(result.lang);
       setData(result);
-      setError(null);
+      // Ошибку последнего действия не стираем: после раскатки сервер делает
+      // scan + publish → mcp-changed → refetch, и текст пропадал за долю секунды.
     }, report);
   }, [rpc, report]);
   useEffect(refetch, [refetch]);
@@ -99,11 +101,11 @@ function useOverview() {
   const act = useCallback(
     async (run: () => Promise<Overview>) => {
       setBusy(true);
+      setError(null);
       try {
         const next = await run();
         setLang(next.lang);
         setData(next);
-        setError(null);
       } catch (cause) {
         report(cause);
       } finally {
@@ -112,7 +114,50 @@ function useOverview() {
     },
     [report],
   );
-  return { rpc, data, error, busy, act, refetch, report };
+  const dismissError = useCallback(() => setError(null), []);
+  return { rpc, data, error, busy, act, refetch, report, dismissError };
+}
+
+/** Постоянный блок ошибки или успеха: не мигает от realtime, закрывается кнопкой, текст копируется. */
+function ActionBanner({
+  text,
+  tone,
+  onClose,
+}: {
+  text: string;
+  tone: "error" | "notice";
+  onClose: () => void;
+}) {
+  const bannerText = t(text);
+  const rows = Math.min(12, Math.max(4, bannerText.split("\n").length));
+
+  return (
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      className={
+        tone === "error"
+          ? "mt-3 rounded-lg border border-destructive/40 p-3"
+          : "mt-3 rounded-lg border border-border p-3"
+      }
+    >
+      <div className="mb-2 flex items-center justify-end">
+        <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label={t("Закрыть")}>
+          {t("Закрыть")}
+        </Button>
+      </div>
+      <Textarea
+        readOnly
+        aria-label={t("Результат действия")}
+        rows={rows}
+        value={bannerText}
+        className={
+          tone === "error"
+            ? "max-h-64 min-h-24 resize-y font-mono text-xs text-destructive"
+            : "max-h-64 min-h-24 resize-y font-mono text-xs text-muted-foreground"
+        }
+      />
+    </div>
+  );
 }
 
 /** Русские склонения: 1 сервер, 2 сервера, 5 серверов. */
@@ -2849,13 +2894,14 @@ function OpenCodeTabContent({
 }
 
 function CatalogPage() {
-  const { rpc, data, error, busy, act, report } = useOverview();
+  const { rpc, data, error, busy, act, report, dismissError } = useOverview();
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingFilter, setPendingFilter] = useState<PendingFilterKey>("new");
   const [gatewayAddOpen, setGatewayAddOpen] = useState(false);
   const [toolTab, setToolTab] = useState<"mcp" | "skills" | "backups" | "plugins" | "opencode">("mcp");
   const [skillFilter, setSkillFilter] = useState<SkillFilterKey>("all");
+  const [fanoutConfirmOpen, setFanoutConfirmOpen] = useState(false);
 
   const syncOpenCode = useCallback((dryRun = false) =>
     act(async () => {
@@ -3075,6 +3121,35 @@ function CatalogPage() {
       return result.overview;
     });
 
+  const runSkillsFanout = () => {
+    void (async () => {
+      let alertText: string | null = null;
+      await act(async () => {
+        const result = await rpc.call("skills_fanout", { hostId: selected, dryRun: false });
+        const text = describeRollout({
+          dryRun: false,
+          remoteConfigured: result.remoteConfigured,
+          canonEmpty: result.overview.skillCanon.length === 0,
+          notOnAllMachines: countSkillsNotOnAllMachines(result.overview.skillCanon),
+          synced: result.synced,
+          syncFailed: result.syncFailed,
+          applied: result.applied,
+          failed: result.failed,
+          skippedByPlugin: result.skippedByPlugin,
+          errors: result.errors,
+        });
+        if (result.failed > 0 || result.syncFailed > 0) {
+          alertText = text;
+          setNotice(null);
+        } else {
+          setNotice(text);
+        }
+        return result.overview;
+      });
+      if (alertText !== null) report(alertText);
+    })();
+  };
+
   const onAdopt = (name: string) =>
     act(() => rpc.call("adopt", { names: [name], scope: "global" }));
   const onAdoptLocal = (name: string) =>
@@ -3208,14 +3283,10 @@ function CatalogPage() {
               </div>
 
               {error === null ? null : (
-                <p role="alert" className="mt-3 text-sm text-destructive">
-                  {t(error)}
-                </p>
+                <ActionBanner text={error} tone="error" onClose={dismissError} />
               )}
               {notice === null ? null : (
-                <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
-                  {t(notice)}
-                </p>
+                <ActionBanner text={notice} tone="notice" onClose={() => setNotice(null)} />
               )}
 
               <Separator className="mt-3" />
@@ -3267,32 +3338,11 @@ function CatalogPage() {
                     variant="outline"
                     disabled={busy}
                     onClick={() => {
-                      void (async () => {
-                        let alertText: string | null = null;
-                        await act(async () => {
-                          const result = await rpc.call("skills_fanout", { hostId: selected, dryRun: false });
-                          const text = describeRollout({
-                            dryRun: false,
-                            remoteConfigured: result.remoteConfigured,
-                            canonEmpty: result.overview.skillCanon.length === 0,
-                            notOnAllMachines: countSkillsNotOnAllMachines(result.overview.skillCanon),
-                            synced: result.synced,
-                            syncFailed: result.syncFailed,
-                            applied: result.applied,
-                            failed: result.failed,
-                            skippedByPlugin: result.skippedByPlugin,
-                            errors: result.errors,
-                          });
-                          if (result.failed > 0 || result.syncFailed > 0) {
-                            alertText = text;
-                            setNotice(null);
-                          } else {
-                            setNotice(text);
-                          }
-                          return result.overview;
-                        });
-                        if (alertText !== null) report(alertText);
-                      })();
+                      if (selected === null) {
+                        setFanoutConfirmOpen(true);
+                        return;
+                      }
+                      runSkillsFanout();
                     }}
                   >
                     {t("Разложить канон по домам")}
@@ -3567,6 +3617,36 @@ function CatalogPage() {
           </div>
         </div>
       </div>
+      <Dialog open={fanoutConfirmOpen} onOpenChange={setFanoutConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("Разложить канон на всех машинах?")}</DialogTitle>
+            <DialogDescription>{t("Выбраны машины:")}</DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 list-disc overflow-y-auto pl-5 text-sm">
+            {(data?.hosts ?? []).map((machine) => (
+              <li key={machine.hostId}>
+                {machine.name}
+                {machine.status === "connected" ? "" : ` — ${t("не на связи")}`}
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setFanoutConfirmOpen(false)}>
+              {t("Отмена")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setFanoutConfirmOpen(false);
+                runSkillsFanout();
+              }}
+            >
+              {t("Запустить")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <GatewayAddDialog
         open={gatewayAddOpen}
         onOpenChange={setGatewayAddOpen}

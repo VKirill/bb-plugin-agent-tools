@@ -74,6 +74,8 @@ export const applyResultSchema = z.object({
 export const skillsScanSchema = z.object({
   /** Абсолютный путь канонического дома (~/.agents/skills) на машине. */
   canonicalPath: z.string().max(1024),
+  /** Канон на машине уже git-репозиторий (есть ~/.agents/skills/.git). Без URL. */
+  canonHasGit: z.boolean().default(false),
   /** Имена скиллов, которые на этой машине уже отдают плагины-маркетплейсы. */
   pluginNames: z.array(z.string().max(120)).max(500).default([]),
   locations: z
@@ -424,8 +426,8 @@ export const hostContract = defineRpcContract({
     input: z.object({ remote: z.string().min(1).max(2048) }),
     output: z.object({
       ok: z.boolean(),
-      error: z.string().max(300).nullable(),
-      message: z.string().max(600).nullable(),
+      error: z.string().max(2000).nullable(),
+      message: z.string().max(2000).nullable(),
     }),
   },
   opencode_scan: { input: z.object({}), output: openCodeScanSchema },
