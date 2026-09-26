@@ -581,6 +581,10 @@ function agentState(agent: ManagedAgent, entry: CatalogEntry): CellState {
  * Сводка канона: строка на скилл, колонка на машину. Здесь видно главное —
  * одинаков ли набор навыков везде, и куда он раскатан внутри машины.
  */
+function canonHostDiverged(state: string): boolean {
+  return state === "differs" || state === "newer" || state === "stale";
+}
+
 function SkillCanon({ data, selected }: { data: Overview; selected: string | null }) {
   const [filter, setFilter] = useState<"all" | "gaps" | "differs" | "plugin">("all");
   const [query, setQuery] = useState("");
@@ -590,7 +594,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
     () => ({
       all: rows.length,
       gaps: rows.filter((row) => row.hosts.some((item) => item.state === "missing")).length,
-      differs: rows.filter((row) => row.hosts.some((item) => item.state === "differs")).length,
+      differs: rows.filter((row) => row.hosts.some((item) => canonHostDiverged(item.state))).length,
       plugin: rows.filter((row) => row.fromPlugin).length,
     }),
     [rows],
@@ -600,7 +604,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
     return rows.filter((row) => {
       if (needle !== "" && !row.name.toLowerCase().includes(needle)) return false;
       if (filter === "gaps") return row.hosts.some((item) => item.state === "missing");
-      if (filter === "differs") return row.hosts.some((item) => item.state === "differs");
+      if (filter === "differs") return row.hosts.some((item) => canonHostDiverged(item.state));
       if (filter === "plugin") return row.fromPlugin;
       return true;
     });
@@ -677,6 +681,10 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                     <TableCell key={item.hostId}>
                       {item.state === "same" ? (
                         <span className="text-emerald-600" title={t("есть, содержимое как у всех")}>{t("есть")}</span>
+                      ) : item.state === "newer" ? (
+                        <span className="text-amber-600" title={t("на этой машине файлы новее")}>{t("новее")}</span>
+                      ) : item.state === "stale" ? (
+                        <span className="text-orange-800" title={t("есть, но файлы старше чем на другой машине")}>{t("устарел")}</span>
                       ) : item.state === "differs" ? (
                         <span className="text-amber-600" title={t("есть, но содержимое отличается")}>{t("отличается")}</span>
                       ) : (

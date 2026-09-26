@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeSkillRows,
+  classifyCanonHostStates,
   effectiveCanonHash,
   locationPolicy,
   planPromoteToCanon,
@@ -158,6 +159,31 @@ test("хеш для матрицы канона берёт дерево из д�
   ];
   assert.equal(effectiveCanonHash("selfystudio", "canon", locations), "project");
   assert.equal(effectiveCanonHash("selfystudio", "canon", [locations[0]!]), "canon");
+});
+
+test("в матрице канона свежий хеш — новее, остальные — устарел", () => {
+  assert.deepEqual(
+    classifyCanonHostStates([
+      { hash: "old", mtime: 100 },
+      { hash: "old", mtime: 100 },
+      { hash: "new", mtime: 200 },
+    ]),
+    ["stale", "stale", "newer"],
+  );
+  assert.deepEqual(
+    classifyCanonHostStates([
+      { hash: "a", mtime: 50 },
+      { hash: "a", mtime: 50 },
+    ]),
+    ["same", "same"],
+  );
+  assert.deepEqual(
+    classifyCanonHostStates([
+      { hash: "a", mtime: 100 },
+      { hash: "b", mtime: 100 },
+    ]),
+    ["differs", "differs"],
+  );
 });
 
 test("более новый скилл в доме CLI забирается в канон этой машины", () => {

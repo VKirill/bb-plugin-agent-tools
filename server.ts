@@ -34,7 +34,7 @@ import {
   skillBackupSchema,
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
-import { computeSkillRows, effectiveCanonHash, locationPath, planPromoteToCanon } from "./skills";
+import { classifyCanonHostStates, computeSkillRows, effectiveCanonStamp, locationPath, planPromoteToCanon } from "./skills";
 import {
   setLang,
   setDictionary,
@@ -162,8 +162,8 @@ const overviewSchema = z.object({
       hosts: z.array(
         z.object({
           hostId: z.string(),
-          /** "same" — как у всех, "differs" — другое содержимое, "missing" — нет. */
-          state: z.enum(["same", "differs", "missing"]),
+          /** same — как у всех; newer — свежее; stale — устарел; differs — разошлись без даты; missing — нет. */
+          state: z.enum(["same", "differs", "missing", "newer", "stale"]),
           /** Где лежит копия помимо канона: дома CLI, куда раскатано. */
           homes: z.array(z.string()),
           mtime: z.number().nullable(),
@@ -828,9 +828,8 @@ export default async function plugin(bb: BbPluginApi) {
         // Старые снапшоты в kv не содержат mtime — undefined схемой отвергается.
         .map((row) => ({ ...row, mtime: row.mtime ?? null, canonicalMtime: row.canonicalMtime ?? null })),
     }));
-    // Сводка канона по машинам: одна строка на имя, состояние в каждой машине.
-    // Эталон содержимого — самый частый хеш: так одна разошедшаяся машина видна,
-    // а не «все против всех».
+    // Сводка канона по машинам: одна строка на имя. Если хеши разные —
+    // свежий mtime это «новее», остальные «устарел».
     const canonNames = new Set<string>();
     const canonByHost = new Map<string, Map<string, { hash: string | null; mtime: number | null; homes: string[] }>>();
     const pluginNames = new Set<string>();
@@ -846,9 +845,10 @@ export default async function plugin(bb: BbPluginApi) {
               location.entries.some((item) => item.name === entry.name && item.hasSkillMd),
           )
           .map((location) => location.id);
+        const stamp = effectiveCanonStamp(entry.name, entry.hash, entry.mtime, snapshot.scan.locations);
         mine.set(entry.name, {
-          hash: effectiveCanonHash(entry.name, entry.hash, snapshot.scan.locations),
-          mtime: entry.mtime,
+          hash: stamp.hash,
+          mtime: stamp.mtime,
           homes,
         });
         canonNames.add(entry.name);
@@ -857,26 +857,19 @@ export default async function plugin(bb: BbPluginApi) {
       for (const name of snapshot.scan.pluginNames ?? []) pluginNames.add(name);
     }
     const skillCanon = [...canonNames].sort((a, b) => a.localeCompare(b)).map((name) => {
-      const counts = new Map<string, number>();
-      for (const mine of canonByHost.values()) {
-        const hash = mine.get(name)?.hash;
-        if (hash === undefined || hash === null) continue;
-        counts.set(hash, (counts.get(hash) ?? 0) + 1);
-      }
-      const common = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      const stamps = skillsSnapshots.map((snapshot) => {
+        const entry = canonByHost.get(snapshot.hostId)?.get(name);
+        return { hash: entry?.hash ?? null, mtime: entry?.mtime ?? null };
+      });
+      const states = classifyCanonHostStates(stamps);
       return {
         name,
         fromPlugin: pluginNames.has(name),
-        hosts: skillsSnapshots.map((snapshot) => {
+        hosts: skillsSnapshots.map((snapshot, index) => {
           const entry = canonByHost.get(snapshot.hostId)?.get(name);
           return {
             hostId: snapshot.hostId,
-            state:
-              entry === undefined
-                ? ("missing" as const)
-                : entry.hash === common || common === null
-                  ? ("same" as const)
-                  : ("differs" as const),
+            state: states[index]!,
             homes: entry?.homes ?? [],
             mtime: entry?.mtime ?? null,
           };
@@ -2495,14 +2488,27 @@ export default async function plugin(bb: BbPluginApi) {
             const lines = current.skillCanon.map((row) => {
               const cells = row.hosts
                 .map((item, index) => {
-                  const mark = item.state === "same" ? t("есть") : item.state === "differs" ? t("отличается") : t("нет");
+                  const mark =
+                    item.state === "same"
+                      ? t("есть")
+                      : item.state === "newer"
+                        ? t("новее")
+                        : item.state === "stale"
+                          ? t("устарел")
+                          : item.state === "differs"
+                            ? t("отличается")
+                            : t("нет");
                   return `${names[index] ?? item.hostId}: ${mark}`;
                 })
                 .join("  ");
               return `${row.name}${row.fromPlugin ? t(" (плагин)") : ""}  ${cells}`;
             });
             const gaps = current.skillCanon.filter((row) => row.hosts.some((item) => item.state === "missing")).length;
-            const differs = current.skillCanon.filter((row) => row.hosts.some((item) => item.state === "differs")).length;
+            const differs = current.skillCanon.filter((row) =>
+              row.hosts.some(
+                (item) => item.state === "differs" || item.state === "newer" || item.state === "stale",
+              ),
+            ).length;
             return reply(
               current.skillCanon,
               current.skillCanon.length === 0

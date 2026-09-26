@@ -28,22 +28,55 @@ export interface SkillRow {
 }
 
 /**
- * Hash that the per-machine canon matrix should compare. A symlink in a CLI
- * home that points at a project (not the canon) is what Claude actually reads;
- * if that tree differs from this machine's ~/.agents/skills copy, use it so
- * the matrix shows "differs" instead of a green "present".
+ * Hash and mtime the per-machine canon matrix should compare. A CLI-home tree
+ * that is not the canon (project symlink) is what the agent actually reads.
  */
+export function effectiveCanonStamp(
+  name: string,
+  canonHash: string | null,
+  canonMtime: number | null,
+  locations: SkillLocationScan[],
+): { hash: string | null; mtime: number | null } {
+  for (const location of locations) {
+    if (location.id === "agents" || !location.exists) continue;
+    const entry = location.entries.find((item) => item.name === name && item.hasSkillMd);
+    if (entry?.hash != null && entry.hash !== canonHash) {
+      return { hash: entry.hash, mtime: entry.mtime };
+    }
+  }
+  return { hash: canonHash, mtime: canonMtime };
+}
+
 export function effectiveCanonHash(
   name: string,
   canonHash: string | null,
   locations: SkillLocationScan[],
 ): string | null {
-  for (const location of locations) {
-    if (location.id === "agents" || !location.exists) continue;
-    const entry = location.entries.find((item) => item.name === name && item.hasSkillMd);
-    if (entry?.hash != null && entry.hash !== canonHash) return entry.hash;
+  return effectiveCanonStamp(name, canonHash, null, locations).hash;
+}
+
+export type CanonCellState = "same" | "differs" | "missing" | "newer" | "stale";
+
+/** Per-machine labels for the canon matrix. Newest mtime among differing hashes is "newer"; the rest are "stale". */
+export function classifyCanonHostStates(
+  hosts: Array<{ hash: string | null | undefined; mtime: number | null | undefined }>,
+): CanonCellState[] {
+  const present = hosts.flatMap((item, index) =>
+    item.hash == null ? [] : [{ index, hash: item.hash, mtime: item.mtime ?? null }],
+  );
+  if (present.length === 0) return hosts.map(() => "missing");
+  if (new Set(present.map((item) => item.hash)).size === 1) {
+    return hosts.map((item) => (item.hash == null ? "missing" : "same"));
   }
-  return canonHash;
+  const dated = present.filter((item) => item.mtime !== null);
+  const maxMtime = dated.length === 0 ? null : Math.max(...dated.map((item) => item.mtime as number));
+  const newestHashes = new Set(dated.filter((item) => item.mtime === maxMtime).map((item) => item.hash));
+  const ranked = maxMtime !== null && newestHashes.size === 1;
+  return hosts.map((item) => {
+    if (item.hash == null) return "missing";
+    if (!ranked) return "differs";
+    return newestHashes.has(item.hash) ? "newer" : "stale";
+  });
 }
 
 export type SkillActionMode = "adopt" | "link" | "take" | "delete" | "unlink";
