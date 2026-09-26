@@ -34,7 +34,7 @@ import {
   skillBackupSchema,
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
-import { computeSkillRows, locationPath } from "./skills";
+import { computeSkillRows, effectiveCanonHash, locationPath } from "./skills";
 import {
   setLang,
   setDictionary,
@@ -844,7 +844,11 @@ export default async function plugin(bb: BbPluginApi) {
               location.entries.some((item) => item.name === entry.name && item.hasSkillMd),
           )
           .map((location) => location.id);
-        mine.set(entry.name, { hash: entry.hash, mtime: entry.mtime, homes });
+        mine.set(entry.name, {
+          hash: effectiveCanonHash(entry.name, entry.hash, snapshot.scan.locations),
+          mtime: entry.mtime,
+          homes,
+        });
         canonNames.add(entry.name);
       }
       canonByHost.set(snapshot.hostId, mine);
@@ -880,7 +884,12 @@ export default async function plugin(bb: BbPluginApi) {
 
     const skillsPending = skillsViews.flatMap((view) =>
       view.rows
-        .filter((row) => row.state === "only-here")
+        .filter(
+          (row) =>
+            row.state === "only-here" ||
+            row.state === "diverged" ||
+            row.state === "linked-external",
+        )
         .map((row) => ({ hostId: view.hostId, hostName: view.hostName, locationId: row.locationId, name: row.name })),
     );
 

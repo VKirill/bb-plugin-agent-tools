@@ -3086,13 +3086,15 @@ function CatalogPage() {
   const skillRows = data.skills
     .filter((view) => selected === null || view.hostId === selected)
     .flatMap((view) =>
-      view.rows
-        .filter((row) => {
-          if (row.state !== "linked-external") return true;
-          return resolveRowAction(row as unknown as SkillRowT) !== null;
-        })
-        .map((row) => ({ ...row, hostId: view.hostId, hostName: view.hostName })),
-    );
+      view.rows.map((row) => ({ ...row, hostId: view.hostId, hostName: view.hostName })),
+    )
+    .sort((a, b) => {
+      const rank = (state: string) =>
+        state === "only-here" || state === "diverged" || state === "linked-external" ? 0 : 1;
+      const byState = rank(a.state) - rank(b.state);
+      if (byState !== 0) return byState;
+      return a.name.localeCompare(b.name) || a.hostName.localeCompare(b.hostName);
+    });
   const skillsAttention = data.skillsPending.filter(
     (item) => selected === null || item.hostId === selected,
   ).length;
@@ -3100,7 +3102,7 @@ function CatalogPage() {
     all: skillRows.length,
     copy: skillRows.filter((row) => row.state === "copy").length,
     new: skillRows.filter((row) => row.state === "only-here").length,
-    diverged: skillRows.filter((row) => row.state === "diverged").length,
+    diverged: skillRows.filter((row) => skillFilterOf(row.state) === "diverged").length,
     stray: skillRows.filter((row) => row.state === "stray-link").length,
     bbdup: skillRows.filter((row) => row.state === "bb-registry").length,
   };

@@ -27,6 +27,25 @@ export interface SkillRow {
   canonicalMtime: number | null;
 }
 
+/**
+ * Hash that the per-machine canon matrix should compare. A symlink in a CLI
+ * home that points at a project (not the canon) is what Claude actually reads;
+ * if that tree differs from this machine's ~/.agents/skills copy, use it so
+ * the matrix shows "differs" instead of a green "present".
+ */
+export function effectiveCanonHash(
+  name: string,
+  canonHash: string | null,
+  locations: SkillLocationScan[],
+): string | null {
+  for (const location of locations) {
+    if (location.id === "agents" || !location.exists) continue;
+    const entry = location.entries.find((item) => item.name === name && item.hasSkillMd);
+    if (entry?.hash != null && entry.hash !== canonHash) return entry.hash;
+  }
+  return canonHash;
+}
+
 export type SkillActionMode = "adopt" | "link" | "take" | "delete" | "unlink";
 
 export interface SkillAction {

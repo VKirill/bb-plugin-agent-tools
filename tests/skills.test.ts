@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeSkillRows, locationPolicy, resolveRowAction, type SkillLocationScan } from "../skills.ts";
+import {
+  computeSkillRows,
+  effectiveCanonHash,
+  locationPolicy,
+  resolveRowAction,
+  type SkillLocationScan,
+} from "../skills.ts";
 
 const CANON = "/home/u/.agents/skills";
 
@@ -133,4 +139,22 @@ test("папку BB правила не трогают: BB заносит в р�
   ]);
   assert.equal(locationPolicy("bb"), "own");
   for (const row of rows) assert.equal(resolveRowAction(row), null);
+});
+
+test("хеш для матрицы канона берёт дерево из дома CLI, если оно не как канон", () => {
+  const locations = [
+    scan("agents", CANON, [dir("selfystudio", "canon")]),
+    scan("claude", "/home/u/.claude/skills", [
+      {
+        name: "selfystudio",
+        kind: "symlink",
+        target: "/home/u/apps/selfystudio/.agents/skills/selfystudio",
+        hash: "project",
+        mtime: 200,
+        hasSkillMd: true,
+      },
+    ]),
+  ];
+  assert.equal(effectiveCanonHash("selfystudio", "canon", locations), "project");
+  assert.equal(effectiveCanonHash("selfystudio", "canon", [locations[0]!]), "canon");
 });
