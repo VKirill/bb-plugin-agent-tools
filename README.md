@@ -8,6 +8,10 @@
 
 *[Русская версия ниже](#инструменты-агентов--плагин-bb).*
 
+![MCP server matrix](screenshots/servers.png)
+
+![Skills canon across machines](screenshots/skills.png)
+
 ## What it does
 
 - **Machine catalogue.** Every BB machine with the number of CLIs found, the time of the last sweep and a drift badge. MetaMCP gateways and the servers behind them are listed below.
@@ -111,6 +115,10 @@ For development: `bb plugin dev`. Tests and types: `npm test`, `npm run typechec
 # Инструменты агентов — плагин BB
 
 > Агенты работают на нескольких машинах, и каждая разъезжается по-своему: сервер, настроенный на ноутбуке, отсутствует на сервере; навык, поправленный на десктопе, туда не доезжает. Плагин обходит каждую подключённую к BB машину, читает конфиги установленных CLI-агентов и папки навыков и приводит их к одному каталогу и одному канону.
+
+![Матрица MCP-серверов](screenshots/servers.png)
+
+![Канон скиллов по машинам](screenshots/skills.png)
 
 ## Что он делает
 
