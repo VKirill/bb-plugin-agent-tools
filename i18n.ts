@@ -79,6 +79,8 @@ export type RolloutDescription = {
   failed: number;
   skippedByPlugin: string[];
   errors: string[];
+  promoted?: number;
+  promoteFailed?: number;
 };
 
 /**
@@ -89,6 +91,11 @@ export type RolloutDescription = {
 export function describeRollout(input: RolloutDescription): string {
   const ops = input.applied + input.failed;
   const lines: string[] = [];
+  const promoted = input.promoted ?? 0;
+  const promoteFailed = input.promoteFailed ?? 0;
+  if (promoted > 0 || promoteFailed > 0) {
+    lines.push(tp("В канон: {0}, ошибок {1}", promoted, promoteFailed));
+  }
   const intraMachineRemoteHint = t(
     "кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках",
   );

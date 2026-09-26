@@ -219,6 +219,84 @@ export function computeSkillRows(
   return rows.sort((a, b) => a.name.localeCompare(b.name) || a.locationId.localeCompare(b.locationId));
 }
 
+export interface PromoteToCanonOp {
+  hostId: string;
+  locationId: string;
+  name: string;
+  mode: "adopt" | "take";
+}
+
+/**
+ * Newest tree wins: copy it into that machine's ~/.agents/skills. Git sync
+ * then carries it to the others. Equal dates with different hashes stay manual.
+ * Plugin-provided names and BB's own home are left alone.
+ */
+export function planPromoteToCanon(
+  hosts: Array<{ hostId: string; locations: SkillLocationScan[]; pluginNames?: string[] }>,
+): PromoteToCanonOp[] {
+  const pluginNames = new Set(hosts.flatMap((host) => host.pluginNames ?? []));
+  type Version = {
+    hostId: string;
+    locationId: string;
+    name: string;
+    hash: string;
+    mtime: number;
+    fromCanon: boolean;
+  };
+  const versions: Version[] = [];
+  for (const host of hosts) {
+    const canon = host.locations.find((item) => item.id === "agents");
+    const canonPath = canon?.path ?? "";
+    for (const entry of canon?.entries ?? []) {
+      if (!entry.hasSkillMd || entry.hash == null || entry.mtime == null) continue;
+      versions.push({
+        hostId: host.hostId,
+        locationId: "agents",
+        name: entry.name,
+        hash: entry.hash,
+        mtime: entry.mtime,
+        fromCanon: true,
+      });
+    }
+    for (const row of computeSkillRows(canonPath, host.locations)) {
+      if (locationPolicy(row.locationId) === "own") continue;
+      if (row.state !== "only-here" && row.state !== "linked-external" && row.state !== "diverged") {
+        continue;
+      }
+      if (row.hash == null || row.mtime == null) continue;
+      versions.push({
+        hostId: host.hostId,
+        locationId: row.locationId,
+        name: row.name,
+        hash: row.hash,
+        mtime: row.mtime,
+        fromCanon: false,
+      });
+    }
+  }
+  const ops: PromoteToCanonOp[] = [];
+  for (const name of [...new Set(versions.map((item) => item.name))].sort((a, b) => a.localeCompare(b))) {
+    if (pluginNames.has(name)) continue;
+    const candidates = versions.filter((item) => item.name === name);
+    const maxMtime = Math.max(...candidates.map((item) => item.mtime));
+    const top = candidates.filter((item) => item.mtime === maxMtime);
+    if (new Set(top.map((item) => item.hash)).size !== 1) continue;
+    if (top.some((item) => item.fromCanon)) continue;
+    const winner = [...top].sort(
+      (a, b) => a.hostId.localeCompare(b.hostId) || a.locationId.localeCompare(b.locationId),
+    )[0]!;
+    const localCanon = candidates.find((item) => item.hostId === winner.hostId && item.fromCanon);
+    if (localCanon?.hash === winner.hash) continue;
+    ops.push({
+      hostId: winner.hostId,
+      locationId: winner.locationId,
+      name,
+      mode: localCanon === undefined ? "adopt" : "take",
+    });
+  }
+  return ops;
+}
+
 // ---------------------------------------------------------------------------
 // Раскатка канона по домам CLI: канон — источник правды, дома получают его
 // копии и ссылки.

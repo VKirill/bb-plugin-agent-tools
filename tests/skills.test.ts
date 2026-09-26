@@ -4,6 +4,7 @@ import {
   computeSkillRows,
   effectiveCanonHash,
   locationPolicy,
+  planPromoteToCanon,
   resolveRowAction,
   type SkillLocationScan,
 } from "../skills.ts";
@@ -157,4 +158,106 @@ test("хеш для матрицы канона берёт дерево из д�
   ];
   assert.equal(effectiveCanonHash("selfystudio", "canon", locations), "project");
   assert.equal(effectiveCanonHash("selfystudio", "canon", [locations[0]!]), "canon");
+});
+
+test("более новый скилл в доме CLI забирается в канон этой машины", () => {
+  const ops = planPromoteToCanon([
+    {
+      hostId: "mini",
+      locations: [
+        scan("agents", CANON, [dir("selfystudio", "old", 100)]),
+        scan("claude", "/home/u/.claude/skills", [
+          {
+            name: "selfystudio",
+            kind: "symlink",
+            target: "/proj/selfystudio",
+            hash: "old",
+            mtime: 100,
+            hasSkillMd: true,
+          },
+        ]),
+      ],
+    },
+    {
+      hostId: "ovh",
+      locations: [
+        scan("agents", CANON, [dir("selfystudio", "old", 100)]),
+        scan("claude", "/home/u/.claude/skills", [
+          {
+            name: "selfystudio",
+            kind: "symlink",
+            target: "/proj/selfystudio",
+            hash: "new",
+            mtime: 200,
+            hasSkillMd: true,
+          },
+        ]),
+      ],
+    },
+  ]);
+  assert.deepEqual(ops, [{ hostId: "ovh", locationId: "claude", name: "selfystudio", mode: "take" }]);
+});
+
+test("нового скилла нет в каноне — adopt на машине, где он лежит", () => {
+  const ops = planPromoteToCanon([
+    {
+      hostId: "ovh",
+      locations: [
+        scan("agents", CANON, []),
+        scan("claude", "/home/u/.claude/skills", [
+          {
+            name: "fresh",
+            kind: "symlink",
+            target: "/proj/fresh",
+            hash: "h",
+            mtime: 50,
+            hasSkillMd: true,
+          },
+        ]),
+      ],
+    },
+  ]);
+  assert.deepEqual(ops, [{ hostId: "ovh", locationId: "claude", name: "fresh", mode: "adopt" }]);
+});
+
+test("равные даты и разный хеш не трогаем сами", () => {
+  const ops = planPromoteToCanon([
+    {
+      hostId: "a",
+      locations: [scan("agents", CANON, [dir("x", "h1", 100)])],
+    },
+    {
+      hostId: "b",
+      locations: [
+        scan("agents", CANON, [dir("x", "h2", 100)]),
+        scan("claude", "/home/u/.claude/skills", [
+          { name: "x", kind: "dir", target: null, hash: "h2", mtime: 100, hasSkillMd: true },
+        ]),
+      ],
+    },
+  ]);
+  assert.deepEqual(ops, []);
+});
+
+test("имя из плагина в канон из дома не забираем", () => {
+  const ops = planPromoteToCanon([
+    {
+      hostId: "ovh",
+      pluginNames: ["fresh"],
+      locations: [
+        scan("agents", CANON, []),
+        scan("claude", "/home/u/.claude/skills", [
+          {
+            name: "fresh",
+            kind: "symlink",
+            target: "/proj/fresh",
+            hash: "h",
+            mtime: 50,
+            hasSkillMd: true,
+          },
+        ]),
+      ],
+    },
+  ]);
+  assert.deepEqual(ops, []);
 });

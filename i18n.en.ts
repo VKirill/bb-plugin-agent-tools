@@ -64,6 +64,8 @@ export const EN: Record<string, string> = {
   "Скиллы вне канона, с --canon — сам канон по машинам":
     "Skills outside the canon; with --canon, the canon itself per machine",
   "Перенести скилл в канон или перекрыть симлинком": "Move a skill into the canon or replace it with a symlink",
+  "Новее и новые в канон, синк git, дома CLI":
+    "Newer and new skills into the canon, git sync, then CLI homes",
   "Разложить канон по домам CLI: ссылки, зеркало BB, архив":
     "Lay the canon out into the CLI homes: symlinks, the BB mirror, the archive",
   "Архив снимков скиллов": "Skill snapshot archive",
@@ -173,6 +175,8 @@ export const EN: Record<string, string> = {
   "Сделать любимой": "Make it the favourite",
   "Применить все правила": "Apply every rule",
   "Разложить канон по домам": "Lay the canon out into the homes",
+  "Обновить скиллы везде": "Update skills everywhere",
+  "В канон: {0}, ошибок {1}": "Into the canon: {0}, failed {1}",
   "Только уникальные": "Unique only",
   "Поиск по имени": "Search by name",
   "За шлюз…": "Behind the gateway…",
@@ -236,6 +240,9 @@ export const EN: Record<string, string> = {
   "машина не ответила за {0} с": "the machine did not respond in {0} s",
   "машина не на связи": "machine is offline",
   "Разложить канон на всех машинах?": "Lay the canon out on all machines?",
+  "Обновить скиллы на всех машинах?": "Update skills on every machine?",
+  "Если на одной машине скилл новее или его ещё нет в каноне — копируем в ~/.agents/skills, синхронизируем канон и раскладываем дома CLI. Живые ссылки в проекты не переставляем.":
+    "If a skill is newer on one machine, or is missing from the canon, it is copied into ~/.agents/skills, the canon is synced, and the CLI homes are laid out. Live project symlinks are not retargeted.",
   "Выбраны машины:": "Selected machines:",
   "Запустить": "Run",
   "скилл": "skill",
@@ -443,7 +450,9 @@ export const EN: Record<string, string> = {
   "Снимок восстановлен": "Snapshot restored",
   "Автосинхронизация": "Hourly sweep",
   "Раскатывать по расписанию": "Lay out on schedule",
+  "Обновлять по расписанию": "Update on schedule",
   "Автораскатка {0}": "Scheduled fan-out {0}",
+  "Автообновление скиллов {0}": "Scheduled skill update {0}",
 
   // --- errors from the machines ------------------------------------------
   "не удалось": "failed",
@@ -537,8 +546,11 @@ export const EN: Record<string, string> = {
   "Нечего проверять: серверов на машинах не найдено.": "Nothing to check: no servers found on the machines.",
 
   "Скиллы: раскатывать канон по расписанию": "Skills: lay the canon out on schedule",
+  "Скиллы: обновлять по расписанию": "Skills: update on schedule",
   "Выключено — плагин ничего не перекладывает сам: раскатка только по кнопке «Разложить канон по домам» или командой bb tools skills-fanout. Включите, если хотите, чтобы дома CLI подтягивались за каноном в часовом обходе.":
     "Off — the plugin never moves anything on its own: fan-out happens only through the “Lay the canon out into the homes” button or the bb tools skills-fanout command. Turn it on to let the hourly sweep keep the CLI homes in step with the canon.",
+  "Выключено — плагин сам ничего не копирует в канон и не раскладывает дома: только кнопка «Обновить скиллы везде» или bb tools skills-fanout. Включите, чтобы часовой обход забирал более новые и новые скиллы в канон, синхронизировал git и раскладывал дома CLI.":
+    "Off — the plugin does not copy into the canon or lay out homes by itself: only the “Update skills everywhere” button or bb tools skills-fanout. Turn it on so the hourly sweep takes newer and new skills into the canon, syncs git, and lays out CLI homes.",
 
   // --- code sample placeholders ------------------------------------------
   "имя-сервера": "server-name",

@@ -3170,7 +3170,7 @@ function CatalogPage() {
     void (async () => {
       let alertText: string | null = null;
       await act(async () => {
-        const result = await rpc.call("skills_fanout", { hostId: selected, dryRun: false });
+        const result = await rpc.call("skills_fanout", { hostId: null, dryRun: false });
         const text = describeRollout({
           dryRun: false,
           remoteConfigured: result.remoteConfigured,
@@ -3178,12 +3178,14 @@ function CatalogPage() {
           notOnAllMachines: countSkillsNotOnAllMachines(result.overview.skillCanon),
           synced: result.synced,
           syncFailed: result.syncFailed,
+          promoted: result.promoted,
+          promoteFailed: result.promoteFailed,
           applied: result.applied,
           failed: result.failed,
           skippedByPlugin: result.skippedByPlugin,
           errors: result.errors,
         });
-        if (result.failed > 0 || result.syncFailed > 0) {
+        if (result.failed > 0 || result.syncFailed > 0 || result.promoteFailed > 0) {
           alertText = text;
           setNotice(null);
         } else {
@@ -3382,15 +3384,9 @@ function CatalogPage() {
                     size="sm"
                     variant="outline"
                     disabled={busy}
-                    onClick={() => {
-                      if (selected === null) {
-                        setFanoutConfirmOpen(true);
-                        return;
-                      }
-                      runSkillsFanout();
-                    }}
+                    onClick={() => setFanoutConfirmOpen(true)}
                   >
-                    {t("Разложить канон по домам")}
+                    {t("Обновить скиллы везде")}
                   </Button>
                   {data.skillsSyncRemoteConfigured ? null : (
                     <span className="text-xs text-muted-foreground">
@@ -3402,14 +3398,14 @@ function CatalogPage() {
                       checked={data.skillsFanOutAuto}
                       disabled={busy}
                       aria-label={tp(
-                        "Автораскатка {0}",
+                        "Автообновление скиллов {0}",
                         data.skillsFanOutAuto ? t("включена") : t("выключена"),
                       )}
                       onCheckedChange={(enabled) =>
                         act(() => rpc.call("set_skills_fanout_auto", { enabled }))
                       }
                     />
-                    {t("Раскатывать по расписанию")}
+                    {t("Обновлять по расписанию")}
                   </label>
                 </div>
               ) : null}
@@ -3665,8 +3661,12 @@ function CatalogPage() {
       <Dialog open={fanoutConfirmOpen} onOpenChange={setFanoutConfirmOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t("Разложить канон на всех машинах?")}</DialogTitle>
-            <DialogDescription>{t("Выбраны машины:")}</DialogDescription>
+            <DialogTitle>{t("Обновить скиллы на всех машинах?")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                "Если на одной машине скилл новее или его ещё нет в каноне — копируем в ~/.agents/skills, синхронизируем канон и раскладываем дома CLI. Живые ссылки в проекты не переставляем.",
+              )}
+            </DialogDescription>
           </DialogHeader>
           <ul className="max-h-48 list-disc overflow-y-auto pl-5 text-sm">
             {(data?.hosts ?? []).map((machine) => (

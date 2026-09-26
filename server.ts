@@ -34,7 +34,7 @@ import {
   skillBackupSchema,
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
-import { computeSkillRows, effectiveCanonHash, locationPath } from "./skills";
+import { computeSkillRows, effectiveCanonHash, locationPath, planPromoteToCanon } from "./skills";
 import {
   setLang,
   setDictionary,
@@ -329,6 +329,8 @@ export const rpcContract = defineRpcContract({
       remoteConfigured: z.boolean(),
       applied: z.number(),
       failed: z.number(),
+      promoted: z.number(),
+      promoteFailed: z.number(),
       ops: z
         .array(
           z.object({
@@ -490,9 +492,9 @@ export default async function plugin(bb: BbPluginApi) {
     },
     skillsFanOutAuto: {
       type: "boolean",
-      label: t("Скиллы: раскатывать канон по расписанию"),
+      label: t("Скиллы: обновлять по расписанию"),
       description: t(
-        "Выключено — плагин ничего не перекладывает сам: раскатка только по кнопке «Разложить канон по домам» или командой bb tools skills-fanout. Включите, если хотите, чтобы дома CLI подтягивались за каноном в часовом обходе.",
+        "Выключено — плагин сам ничего не копирует в канон и не раскладывает дома: только кнопка «Обновить скиллы везде» или bb tools skills-fanout. Включите, чтобы часовой обход забирал более новые и новые скиллы в канон, синхронизировал git и раскладывал дома CLI.",
       ),
       default: false,
     },
@@ -1288,14 +1290,68 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   /**
-   * Один шаг кнопки и CLI: при заданном remote сначала синк канона,
-   * затем раскатка домов. dry-run синка не делает и не пишет успешный synced.
+   * Newest/new home trees into ~/.agents/skills on the winning machine,
+   * then (when remote is set) git-sync, then lay out CLI homes.
+   */
+  async function runPromoteToCanon(hostId: string | null, dryRun: boolean) {
+    const snapshots = await readSkillsSnapshots();
+    const scoped = snapshots.filter((item) => hostId === null || item.hostId === hostId);
+    const ops = planPromoteToCanon(
+      scoped.map((item) => ({
+        hostId: item.hostId,
+        locations: item.scan.locations,
+        pluginNames: item.scan.pluginNames,
+      })),
+    );
+    const errors: string[] = [];
+    if (ops.length === 0) return { promoted: 0, promoteFailed: 0, errors };
+    if (dryRun) return { promoted: ops.length, promoteFailed: 0, errors };
+    const byHost = new Map<string, typeof ops>();
+    for (const op of ops) {
+      const list = byHost.get(op.hostId) ?? [];
+      list.push(op);
+      byHost.set(op.hostId, list);
+    }
+    const names = new Map(scoped.map((item) => [item.hostId, item.hostName]));
+    let promoted = 0;
+    let promoteFailed = 0;
+    for (const [id, hostOps] of byHost) {
+      try {
+        const result = await callHostTimed(
+          (timeoutMs) =>
+            host.call(
+              "skills_adopt_bulk",
+              { ops: hostOps.map(({ locationId, name, mode }) => ({ locationId, name, mode })) },
+              { hostId: id, timeoutMs },
+            ),
+          SKILLS_HOST_CALL_TIMEOUT_MS,
+        );
+        for (const item of result.results) {
+          if (item.ok) promoted += 1;
+          else {
+            promoteFailed += 1;
+            errors.push(`${names.get(id) ?? id} · ${item.name}: ${item.error ?? t("ошибка")}`);
+          }
+        }
+      } catch (cause) {
+        promoteFailed += hostOps.length;
+        errors.push(`${names.get(id) ?? id}: ${hostCallFailureReason(cause)}`);
+      }
+    }
+    return { promoted, promoteFailed, errors };
+  }
+
+  /**
+   * One button / CLI / hourly tick: promote winners into canon, sync git, fan-out.
+   * dry-run does not sync and does not write.
    */
   async function runSkillsRollout(hostId: string | null, dryRun: boolean, includePluginNames?: boolean) {
+    await scanAll(hostId);
+    const promote = await runPromoteToCanon(hostId, dryRun);
     const remoteConfigured = (await readConfig()).skillsSyncRemote.trim() !== "";
     let synced = 0;
     let syncFailed = 0;
-    const errors: string[] = [];
+    const errors: string[] = [...promote.errors];
     let skipHostIds: string[] = [];
     if (remoteConfigured && !dryRun) {
       const sync = await runSkillsCanonSync(hostId);
@@ -1310,6 +1366,8 @@ export default async function plugin(bb: BbPluginApi) {
       synced,
       syncFailed,
       remoteConfigured,
+      promoted: promote.promoted,
+      promoteFailed: promote.promoteFailed,
       applied: fan.applied,
       failed: fan.failed,
       ops: fan.ops,
@@ -2020,22 +2078,18 @@ export default async function plugin(bb: BbPluginApi) {
       const result = await runSync(null, false, false);
       bb.log.info(`auto sync: applied ${result.applied}, failed ${result.failed}`);
     }
-    let sweepSkipHostIds: string[] = [];
-    if ((await readConfig()).skillsSyncRemote.trim() !== "") {
-      const sync = await runSkillsCanonSync(null);
-      sweepSkipHostIds = sync.failedHostIds ?? [];
-      for (const line of sync.errors) bb.log.info(`skills sync failed: ${line}`);
-    }
-    // Синк выравнивает каноны между машинами, раскатка — дома CLI внутри каждой.
-    // Без неё новый скилл лежал бы в каноне, но не попадал ни в одну сессию.
-    // По расписанию делаем это только по явной галочке: молча перекладывать
-    // чужие папки после установки плагин не должен.
-    // Провал синка на машине — дома на ней не трогаем: иначе разложится устаревший канон.
-    if ((await readConfig()).skillsFanOutAuto) {
-      const fanOut = await runSkillsFanOut(null, false, undefined, sweepSkipHostIds);
-      if (fanOut.ops.length > 0) {
-        bb.log.info(`skills fan-out: applied ${fanOut.applied}, failed ${fanOut.failed}`);
+    const skillsAuto = (await readConfig()).skillsFanOutAuto;
+    if (skillsAuto) {
+      const result = await runSkillsRollout(null, false);
+      if (result.promoted > 0 || result.applied > 0 || result.promoteFailed > 0 || result.failed > 0) {
+        bb.log.info(
+          `skills rollout: canon ${result.promoted}/${result.promoteFailed}, sync ${result.synced}/${result.syncFailed}, homes ${result.applied}/${result.failed}`,
+        );
       }
+      for (const line of result.errors) bb.log.info(`skills rollout: ${line}`);
+    } else if ((await readConfig()).skillsSyncRemote.trim() !== "") {
+      const sync = await runSkillsCanonSync(null);
+      for (const line of sync.errors) bb.log.info(`skills sync failed: ${line}`);
     }
     await publish();
   });
@@ -2172,7 +2226,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
       {
         name: "skills-fanout",
-        summary: t("Разложить канон по домам CLI: ссылки, зеркало BB, архив"),
+        summary: t("Новее и новые в канон, синк git, дома CLI"),
         usage: "bb tools skills-fanout [--host <id>] [--dry-run] [--all]",
       },
       {
@@ -2516,6 +2570,8 @@ export default async function plugin(bb: BbPluginApi) {
               notOnAllMachines: countSkillsNotOnAllMachines(current.skillCanon),
               synced: result.synced,
               syncFailed: result.syncFailed,
+              promoted: result.promoted,
+              promoteFailed: result.promoteFailed,
               applied: result.applied,
               failed: result.failed,
               skippedByPlugin: result.skippedByPlugin,

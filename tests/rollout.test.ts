@@ -61,6 +61,18 @@ test("0 операций с remote", () => {
   assert.equal(text, "Канон синхронизирован: машин 3, ошибок 0. Разложено: 0, ошибок 0");
 });
 
+test("забор в канон виден в тексте раскатки", () => {
+  const text = describeRollout({
+    ...empty,
+    remoteConfigured: true,
+    promoted: 1,
+    promoteFailed: 0,
+    synced: 3,
+  });
+  assert.match(text, /В канон: 1, ошибок 0/);
+  assert.match(text, /Канон синхронизирован: машин 3/);
+});
+
 test("ошибки синка и раскатки попадают в текст", () => {
   const text = describeRollout({
     ...empty,
