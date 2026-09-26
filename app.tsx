@@ -430,6 +430,7 @@ const SKILL_STATE_LABEL: Record<string, string> = {
   "only-here": t("новый — не в каноне"),
   diverged: t("расходится с каноном"),
   copy: t("копия канона"),
+  "linked-external": t("ссылка мимо канона"),
   "stray-link": t("лишняя ссылка"),
   "bb-registry": t("дубль реестра BB"),
   "canonical-source": t("источник канона"),
@@ -439,6 +440,8 @@ const SKILL_STATE_HINT: Record<string, string> = {
   "only-here": t("в каноне такого скилла нет — перенести"),
   diverged: t("содержимое папки отличается от канона — решить, кто прав"),
   copy: t("содержимое совпадает с каноном — дубликат"),
+  "linked-external":
+    t("ссылка в проект: содержимое отличается от канона — копируем в канон, ссылку не трогаем"),
   "stray-link": t("ссылка в папке, которую мы не используем"),
   "bb-registry":
     t("ссылка в ~/.bb/skills — BB подставляет этот скилл в свои сессии сам, поэтому внутри BB он виден дважды; нужна только для запуска CLI вне BB"),
@@ -449,6 +452,7 @@ const SKILL_STATE_COLOR: Record<string, string> = {
   "only-here": "bg-destructive",
   diverged: "bg-amber-500",
   copy: "bg-emerald-500",
+  "linked-external": "bg-amber-500",
   "stray-link": "bg-border",
   "bb-registry": "bg-amber-500",
   "canonical-source": "bg-border",
@@ -473,7 +477,7 @@ function SkillStateDot({ state }: { state: string }) {
 function SkillStateLegend() {
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-      {(["only-here", "copy", "diverged", "stray-link", "bb-registry", "canonical-source"] as const).map(
+      {(["only-here", "copy", "diverged", "linked-external", "stray-link", "bb-registry", "canonical-source"] as const).map(
         (state) => (
           <span key={state} className="inline-flex items-center gap-1.5">
             <SkillStateDot state={state} />
@@ -504,7 +508,7 @@ const SKILL_FILTERS: Array<{ key: SkillFilterKey; label: string; hint: string }>
 function skillFilterOf(state: string): SkillFilterKey | null {
   if (state === "copy") return "copy";
   if (state === "only-here") return "new";
-  if (state === "diverged") return "diverged";
+  if (state === "diverged" || state === "linked-external") return "diverged";
   if (state === "stray-link") return "stray";
   if (state === "bb-registry") return "bbdup";
   return null;
@@ -3077,13 +3081,16 @@ function CatalogPage() {
           ? pendingGateway
           : pendingLocal;
 
-  // Скиллы вне канона: строки вкладки «Скиллы». Информационные внешние
-  // ссылки (симлинки на ~/.bb/skills и т.п.) без действий не показываем.
+  // Скиллы вне канона: строки вкладки «Скиллы». Здоровые симлинки в канон
+  // сервер уже отфильтровал; ссылка в проект без канона приходит как «новый».
   const skillRows = data.skills
     .filter((view) => selected === null || view.hostId === selected)
     .flatMap((view) =>
       view.rows
-        .filter((row) => row.state !== "linked-external")
+        .filter((row) => {
+          if (row.state !== "linked-external") return true;
+          return resolveRowAction(row as unknown as SkillRowT) !== null;
+        })
         .map((row) => ({ ...row, hostId: view.hostId, hostName: view.hostName })),
     );
   const skillsAttention = data.skillsPending.filter(
@@ -3592,7 +3599,7 @@ function CatalogPage() {
                           </TableCell>
                           <TableCell className="px-3 py-2.5">
                             <Badge
-                              variant={row.state === "only-here" || row.state === "diverged" ? "secondary" : "outline"}
+                              variant={row.state === "only-here" || row.state === "diverged" || row.state === "linked-external" ? "secondary" : "outline"}
                               className="font-normal"
                               title={SKILL_STATE_HINT[row.state]}
                             >

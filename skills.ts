@@ -96,6 +96,16 @@ export function resolveRowAction(row: SkillRow): SkillAction | null {
   if (row.state === "only-here") {
     return { mode: "adopt", label: leavesLink ? "За канон" : "Перенести в канон" };
   }
+  // Живая ссылка в проект: в канон копируем содержимое, саму ссылку не трогаем.
+  if (row.state === "linked-external") {
+    if (row.canonicalMtime === null) {
+      return { mode: "adopt", label: leavesLink ? "За канон" : "Скопировать в канон" };
+    }
+    if (row.mtime !== null && row.canonicalMtime !== null && row.mtime > row.canonicalMtime) {
+      return { mode: "take", label: "В канон (копия новее)" };
+    }
+    return null;
+  }
   if (row.state === "copy") {
     return leavesLink
       ? { mode: "link", label: "Симлинк" }
@@ -118,8 +128,9 @@ export function resolveRowAction(row: SkillRow): SkillAction | null {
 
 /**
  * Канон — папка "agents". Каждый скилл в остальных папках получает состояние:
- * симлинк в канон — "linked", симлинк наружу — "linked-external", реальная
- * копия — "copy" или "diverged" (по хешу папки скилла), без канона — "only-here".
+ * симлинк в канон — "linked", ссылка в проект без канона — "only-here",
+ * ссылка в проект с другим содержимым — "linked-external", реальная
+ * копия — "copy" или "diverged" (по хешу папки скилла).
  * В папке с политикой "drop" любая ссылка — "stray-link": её надо убрать.
  * Особый случай: канон сам ссылается на реальную папку (симлинк в ~/.bb/skills
  * и т.п.) — тогда эта реальная папка помечается "canonical-source": переносить
@@ -152,14 +163,21 @@ export function computeSkillRows(
     for (const entry of location.entries) {
       let state: SkillState;
       if (entry.kind === "symlink") {
-        state =
-          policy === "drop"
-            ? "stray-link"
-            : entry.target !== null && entry.target.startsWith(prefix)
-              ? "linked"
-              : bbPrefix !== null && entry.target !== null && entry.target.startsWith(bbPrefix)
-                ? "bb-registry"
-                : "linked-external";
+        if (policy === "drop") {
+          state = "stray-link";
+        } else if (entry.target !== null && entry.target.startsWith(prefix)) {
+          state = "linked";
+        } else if (bbPrefix !== null && entry.target !== null && entry.target.startsWith(bbPrefix)) {
+          state = "bb-registry";
+        } else if (!canonicalHashes.has(entry.name)) {
+          // Ссылка в проект — тот же кандидат в канон, что и папка «только здесь».
+          if (!entry.hasSkillMd) continue;
+          state = "only-here";
+        } else if (canonicalHashes.get(entry.name) === entry.hash) {
+          continue;
+        } else {
+          state = "linked-external";
+        }
       } else if (!entry.hasSkillMd) {
         continue; // мусор без SKILL.md не скилл
       } else if (canonicalTargets.has(`${location.path}/${entry.name}`)) {
@@ -317,9 +335,11 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
       // Реальная копия — это разбор правил вкладки «Скиллы», не дело раскатки.
       if (here.kind !== "symlink") continue;
       const target = here.target ?? "";
-      if (!target.startsWith(withSlash(canonicalPath)) && target !== `${canonicalPath}/${name}`) {
-        ops.push({ kind: "link", locationId: location.id, name, reason: "ссылка мимо канона" });
-      }
+      const pointsToCanon =
+        target.startsWith(withSlash(canonicalPath)) || target === `${canonicalPath}/${name}`;
+      // Живая ссылка в проект: не переставляем на канон. Битая без SKILL.md
+      // в skillEntries не попадает — её ставит ветка «нет в доме».
+      if (!pointsToCanon) continue;
     }
   }
 

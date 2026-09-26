@@ -355,10 +355,13 @@ export const EN: Record<string, string> = {
   "лишняя ссылка": "stray link",
   "дубль реестра BB": "BB registry duplicate",
   "источник канона": "canon source",
+  "ссылка мимо канона": "link outside the canon",
   "содержимое совпадает с каноном — дубликат": "content matches the canon — a duplicate",
   "содержимое папки отличается от канона — решить, кто прав":
     "the folder content differs from the canon — decide which one wins",
   "в каноне такого скилла нет — перенести": "the canon has no such skill — move it in",
+  "ссылка в проект: содержимое отличается от канона — копируем в канон, ссылку не трогаем":
+    "a project link whose content differs from the canon — copy into the canon, leave the link",
   "ссылка в папке, которую мы не используем": "a link in a folder we do not use",
   "ссылка в ~/.bb/skills — BB подставляет этот скилл в свои сессии сам, поэтому внутри BB он виден дважды; нужна только для запуска CLI вне BB":
     "a link in ~/.bb/skills — BB injects this skill into its own sessions, so inside BB it shows up twice; it is only needed for a CLI started outside BB",
@@ -463,6 +466,7 @@ export const EN: Record<string, string> = {
   "в каноне нет такого скилла": "the canon has no such skill",
   "в каноне уже есть скилл с этим именем": "the canon already has a skill with this name",
   "это уже симлинк": "this is already a symlink",
+  "битая ссылка": "broken link",
   "это не ссылка, а реальная папка": "this is not a link but a real folder",
   "на месте реальная папка": "there is a real folder in place",
   "ссылку в этой папке убирать нельзя — её читает CLI":

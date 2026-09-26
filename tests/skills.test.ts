@@ -99,6 +99,15 @@ test("ссылка в ~/.bb/skills — дубль реестра BB, дейст�
   assert.equal(action.manual, true);
 });
 
+test("ссылка в проект без канона — кандидат в канон, ссылку не трогаем", () => {
+  const rows = computeSkillRows(CANON, [
+    scan("agents", CANON, []),
+    scan("claude", "/home/u/.claude/skills", [link("selfystudio", "/home/u/apps/selfystudio/.agents/skills/selfystudio")]),
+  ]);
+  assert.equal(rows[0]?.state, "only-here");
+  assert.deepEqual(resolveRowAction(rows[0]!), { mode: "adopt", label: "За канон" });
+});
+
 test("ссылка наружу мимо канона и BB остаётся информационной", () => {
   const rows = computeSkillRows(CANON, [
     scan("agents", CANON, [dir("a", "h1")]),
@@ -106,6 +115,15 @@ test("ссылка наружу мимо канона и BB остаётся и�
     scan("claude", "/home/u/.claude/skills", [link("a", "/home/u/elsewhere/a")]),
   ]);
   assert.equal(rows.find((row) => row.locationId === "claude")?.state, "linked-external");
+  assert.equal(resolveRowAction(rows.find((row) => row.locationId === "claude")!), null);
+});
+
+test("ссылка в проект с тем же содержимым, что канон, не показывается", () => {
+  const rows = computeSkillRows(CANON, [
+    scan("agents", CANON, [dir("a", "h1")]),
+    scan("claude", "/home/u/.claude/skills", [{ name: "a", kind: "symlink", target: "/home/u/elsewhere/a", hash: "h1", mtime: 50, hasSkillMd: true }]),
+  ]);
+  assert.equal(rows.find((row) => row.locationId === "claude"), undefined);
 });
 
 test("папку BB правила не трогают: BB заносит в реестр только реальные папки", () => {

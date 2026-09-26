@@ -713,16 +713,37 @@ async function adoptSkill(
   const info = await lstat(original).catch(() => null);
   if (info === null) return { ok: false, error: "скилл не найден в папке" };
   if (info.isSymbolicLink()) {
-    if (mode !== "unlink") return { ok: false, error: "это уже симлинк" };
-    // Ссылку разрешено убирать в папке, которую мы не используем, и в случае
-    // дубля реестра BB (ссылка ведёт в ~/.bb/skills — эти скиллы BB подставляет сам).
-    const target = await realpathOrNull(original);
-    const bbHome = expand(".bb/skills");
-    const isBbRegistry = target !== null && (target === bbHome || target.startsWith(`${bbHome}/`));
-    if (policy !== "drop" && !isBbRegistry) {
-      return { ok: false, error: "ссылку в этой папке убирать нельзя — её читает CLI" };
+    if (mode === "unlink") {
+      // Ссылку разрешено убирать в папке, которую мы не используем, и в случае
+      // дубля реестра BB (ссылка ведёт в ~/.bb/skills — эти скиллы BB подставляет сам).
+      const target = await realpathOrNull(original);
+      const bbHome = expand(".bb/skills");
+      const isBbRegistry = target !== null && (target === bbHome || target.startsWith(`${bbHome}/`));
+      if (policy !== "drop" && !isBbRegistry) {
+        return { ok: false, error: "ссылку в этой папке убирать нельзя — её читает CLI" };
+      }
+      await unlink(original);
+      return { ok: true, error: null };
     }
-    await unlink(original);
+    if (mode !== "adopt" && mode !== "take") {
+      return { ok: false, error: "это уже симлинк" };
+    }
+    const targetDir = await realpathOrNull(original);
+    if (targetDir === null) return { ok: false, error: "битая ссылка" };
+    if (!await exists(path.join(original, "SKILL.md"))) {
+      return { ok: false, error: "в папке нет SKILL.md" };
+    }
+    await mkdir(canonicalDir, { recursive: true });
+    if (mode === "adopt" && await exists(canonicalName)) {
+      return { ok: false, error: "в каноне уже есть скилл с этим именем" };
+    }
+    if (mode === "take" && await exists(canonicalName)) {
+      const backupRoot = expand(".agents/skills-backups");
+      await mkdir(backupRoot, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      await rename(canonicalName, path.join(backupRoot, `${name}.${stamp}`));
+    }
+    await cp(targetDir, canonicalName, { recursive: true, dereference: true });
     return { ok: true, error: null };
   }
   if (mode === "unlink") return { ok: false, error: "это не ссылка, а реальная папка" };

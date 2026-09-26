@@ -111,7 +111,7 @@ test("удаление, приехавшее синком, вычищает зе
   assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.locationId}`).sort(), ["drop:bb", "drop:claude"]);
 });
 
-test("битая ссылка мимо канона переставляется на канон", () => {
+test("живая ссылка мимо канона не переставляется", () => {
   const plan = planFanOut({
     canonicalPath: CANON,
     locations: [
@@ -122,7 +122,21 @@ test("битая ссылка мимо канона переставляется
     pluginNames: [],
     state: { entries: { a: { hash: "h1" } } },
   });
-  assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.reason}`), ["link:ссылка мимо канона"]);
+  assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.reason}`), []);
+});
+
+test("битая ссылка считается отсутствием и ставится на канон", () => {
+  const plan = planFanOut({
+    canonicalPath: CANON,
+    locations: [
+      scan("agents", CANON, [dir("a", "h1")]),
+      scan("claude", CLAUDE, [{ name: "a", kind: "symlink", target: "/somewhere/else/a", hash: null, mtime: null, hasSkillMd: false }]),
+      scan("bb", BB, [dir("a", "h1")]),
+    ],
+    pluginNames: [],
+    state: { entries: { a: { hash: "h1" } } },
+  });
+  assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.reason}`), ["link:нет в доме"]);
 });
 
 test("скилл от плагина не зеркалится и в дом BB: в сессии BB он уже есть", () => {

@@ -132,7 +132,7 @@ export const fanOutOpSchema = z.object({
 export const skillStateSchema = z.enum([
   "canonical", // настоящий скилл в ~/.agents/skills
   "linked", // симлинк на канон — здоровый алиас
-  "linked-external", // симлинк куда-то ещё (например ~/.bb/skills)
+  "linked-external", // симлинк в проект: содержимое разошлось с каноном
   "copy", // реальная копия канона — дубликат
   "diverged", // копия с тем же именем, но другим содержимым
   "only-here", // есть только в этой папке — кандидат в канон
