@@ -2,7 +2,7 @@
 title: Agent Tools deployment
 type: deployment
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 status: active
 confidence: high
 tags: [deployment, build, install]
@@ -63,7 +63,7 @@ The project installs as a BB path plugin; build it with the BB plugin CLI, then 
 
 ## Configure
 
-Open `bb plugin config agent-tools`. Configure MetaMCP URL, secret API key, namespace list, optional skills Git remote, and scheduled skills fan-out setting (`server.ts:473-515`). MCP hourly sync and skill rollout are separate toggles; both default off (`server.ts:493-507`, `server.ts:528-529`).
+Open `bb plugin config agent-tools`. Configure MetaMCP URL, secret API key, namespace list, optional skills Git remote, and the scheduled skills fan-out setting (`server.ts:473-515`). The catalog's hourly sync toggle stores `autoSync` in BB key-value storage and defaults to off when no value exists; scheduled skills fan-out uses the `skillsFanOutAuto` setting, which also defaults to off (`server.ts:493-500`, `server.ts:528-529`, `server.ts:2057-2064`). The scheduled sweep runs catalog sync and skills rollout in separate branches according to those values (`server.ts:2067-2087`).
 
 ## Rollback
 
@@ -82,4 +82,6 @@ See [architecture](architecture.md), [API](api.md), and [gotchas](gotchas.md).
 <!-- lane-pilot:backlinks -->
 ## Referenced by
 
+- [MCP server catalogue](features/mcp-catalog.md)
+- [Agent skill canon and rollout](features/skills.md)
 - [Agent Tools overview](overview.md)

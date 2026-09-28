@@ -1,6 +1,6 @@
 ---
 title: Agent Tools project facts
-updated: 2026-09-27
+updated: 2026-09-28
 sources:
   - package.json
   - AGENTS.md
@@ -30,7 +30,7 @@ sources:
 - Host writes require an existing config or confirmed path (`server.ts:652-665`; see [docs/gotchas.md](docs/gotchas.md)).
 - Config writes create a timestamped adjacent backup, preserve permissions, and use temp-file rename (`host.ts:435-463`).
 - Existing server fields not modeled by this plugin survive because entry updates merge (`normalize.ts:194-203`, `host.ts:465-483`).
-- Auto sync and skills fan-out are separately controlled; skills fan-out defaults off (`server.ts:493-500`, `server.ts:528-529`).
+- Catalog auto sync and scheduled skills fan-out use separate controls; defaults and sweep behavior: [deployment](docs/deployment.md) (`server.ts:493-500`, `server.ts:528-529`, `server.ts:2057-2087`).
 - Skills policy is centralized in `skills.ts`; do not define a new home policy elsewhere (`skills.ts:103-138`).
 - Preserve BB host failures in output and check per-operation results (`server.ts:543-553`, `server.ts:1930-1960`).
 - Full data ownership and retention: [docs/data-model.md](docs/data-model.md).

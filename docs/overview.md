@@ -2,9 +2,9 @@
 title: Agent Tools overview
 type: overview
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 status: active
-confidence: medium
+confidence: high
 tags: [bb-plugin, mcp, agent-skills]
 sources:
   - package.json
@@ -32,7 +32,7 @@ The main areas are the MCP catalogue and sync, skill canon and fan-out, OpenCode
 
 - TypeScript with ES2022, ES modules, bundler resolution, and React JSX (`tsconfig.json:1-29`).
 - BB Plugin SDK `0.4.87` and BB engine `>=0.43` (`package.json:20-38`, `package.json:45-49`).
-- Runtime dependencies include Zod `^4.3.6`, Radix UI tabs/checkbox/separator/slot, and HugeIcons (`package.json:50-60`).
+- Runtime dependencies include Zod `^4.3.6`, Radix UI tabs/checkbox/separator/slot, and HugeIcons (`package.json:38-45`).
 - Development dependencies include TypeScript `^5.7.0`, Hono `^4.11.9`, better-sqlite3 `^12.0.0`, and `@get-bb/plugin-sdk` `0.4.87` (`package.json:47-72`).
 
 ## Quick start
