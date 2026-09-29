@@ -31,7 +31,7 @@ The code and commit history establish opt-in scheduled skill rollout and ordered
 
 **Context:** A skills rollout has to combine local candidates, the shared Git canon, and derived host homes. The commit history records that the latest skill is promoted to canon before Git sync and fan-out (`2170e0d`, `ff8a03d`).
 
-**Decision:** `runSkillsRollout` plans promotions first, synchronizes the canon when a remote is configured, and then applies fan-out to eligible hosts (`server.ts:1289-1364`, `skills.ts:267-330`).
+**Decision:** `runSkillsRollout` plans promotions first, synchronizes the canon when a remote is configured, applies fan-out to eligible hosts, then mirrors real folders into this BB server's `experimental_dataDir/skills` (`server.ts` `runServerBbSkills`).
 
 **Status:** active
 

@@ -15,6 +15,8 @@ export interface SkillLocationScan {
     hash: string | null;
     mtime: number | null;
     hasSkillMd: boolean;
+    /** Tree size in bytes; 0 when unknown (old snapshots). */
+    bytes?: number;
   }[];
 }
 
@@ -133,6 +135,22 @@ export const LOCATION_PATH: Record<string, string> = {
 
 export function locationPath(locationId: string): string {
   return LOCATION_PATH[locationId] ?? locationId;
+}
+
+/** BB host-daemon will not stage a skill tree larger than this into `$`. */
+export const BB_INJECT_MAX_BYTES = 10 * 1024 * 1024;
+
+export function bbInjectTooHeavy(bytes: number): boolean {
+  return bytes > BB_INJECT_MAX_BYTES;
+}
+
+/**
+ * What `$` actually stages: the real `~/.bb/skills` copy if it exists,
+ * otherwise the canon size that fan-out would copy there.
+ */
+export function bbInjectBytes(canonBytes: number, bbDirBytes: number | null): number {
+  if (bbDirBytes != null && bbDirBytes > 0) return bbDirBytes;
+  return canonBytes;
 }
 
 /** Детерминированное действие по строке: null — правила нет (расходятся с равной датой). */
@@ -522,4 +540,43 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
   }
 
   return { ops, nextState: { entries }, skippedByPlugin };
+}
+
+export type ServerBbMirrorOp = { name: string; reason: string };
+
+/**
+ * Plan copies into the BB server's user-skill root (`dataDir/skills`).
+ * Does not pull or retire: those belong to enrolled machines' canons.
+ */
+export function planServerBbMirror(input: {
+  canon: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null }>;
+  dest: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null }>;
+  pluginNames: string[];
+}): ServerBbMirrorOp[] {
+  const plugins = new Set(input.pluginNames);
+  const destByName = new Map(input.dest.map((item) => [item.name, item]));
+  const ops: ServerBbMirrorOp[] = [];
+  for (const canon of input.canon) {
+    if (plugins.has(canon.name) || canon.kind === "symlink" || canon.hash === null) continue;
+    const dest = destByName.get(canon.name);
+    if (dest?.kind === "symlink") continue;
+    if (dest === undefined || dest.hash === null) {
+      ops.push({ name: canon.name, reason: "нет на сервере BB" });
+      continue;
+    }
+    if (dest.hash === canon.hash) continue;
+    if ((canon.mtime ?? 0) >= (dest.mtime ?? 0)) {
+      ops.push({ name: canon.name, reason: "канон новее" });
+    }
+  }
+  return ops;
+}
+
+export function enrolledHostIsBbServer(
+  hosts: Array<{ hostname: string; status: string }>,
+  serverHostname: string,
+): boolean {
+  const want = serverHostname.trim().toLowerCase();
+  if (want === "") return false;
+  return hosts.some((item) => item.status === "connected" && item.hostname.trim().toLowerCase() === want);
 }

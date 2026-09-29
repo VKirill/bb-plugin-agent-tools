@@ -2,7 +2,7 @@
 title: Agent skill canon and rollout
 type: component
 created: 2026-09-27
-updated: 2026-09-28
+updated: 2026-09-29
 status: active
 confidence: high
 tags: [skills, canon, fanout]
@@ -28,8 +28,9 @@ Each scanned skill entry includes its name, directory or symlink kind, resolved 
 3. `resolveRowAction` returns an automatic action when a state and location policy determine one; equal-date divergences and manual BB registry cases remain unresolved (`skills.ts:138-178`).
 4. An explicit adopt/link/take/delete/unlink action runs on the selected host; the host checks location policy, `SKILL.md`, existing canon content, and symlink conditions (`server.ts:1922-1929`, `host.ts:692-787`).
 5. Fan-out first promotes the unique newest candidate into the local canon, then syncs the configured Git remote, then computes and applies home operations (`skills.ts:267-330`, `server.ts:1289-1364`).
-6. `planFanOut` returns `link`, `mirror`, `pull`, `drop`, or `retire` operations plus next history state; the host executor snapshots replacements and blocks operations that would lose files (`skills.ts:409-525`, `host.ts:1122-1188`).
-7. The archive view lists backup metadata; restore snapshots the current canon version and copies the chosen snapshot into the canon (`host.ts:1195-1274`, `server.ts:1972-1977`).
+6. The same rollout then copies real folders into this BB server's `experimental_dataDir/skills` (`planServerBbMirror`, `runServerBbSkills`). Path strings from other machines are not treated as the hub. A connected host with the same hostname does not skip this step: `$` lists `dataDir/skills`, which is not the host's `~/.bb/skills`. Missing local canon files are packed from a connected host (`skills_archive`).
+7. `planFanOut` returns `link`, `mirror`, `pull`, `drop`, or `retire` operations plus next history state; the host executor snapshots replacements and blocks operations that would lose files (`skills.ts:409-525`, `host.ts:1122-1188`).
+8. The archive view lists backup metadata; restore snapshots the current canon version and copies the chosen snapshot into the canon (`host.ts:1195-1274`, `server.ts:1972-1977`).
 
 ### Server initialization and settings
 

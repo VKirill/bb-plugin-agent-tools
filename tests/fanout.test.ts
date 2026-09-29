@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planFanOut, type FanOutState, type SkillLocationScan } from "../skills.ts";
+import { enrolledHostIsBbServer, planFanOut, planServerBbMirror, type FanOutState, type SkillLocationScan } from "../skills.ts";
 
 const CANON = "/home/u/.agents/skills";
 const BB = "/home/u/.bb/skills";
@@ -188,4 +188,43 @@ test("скилл, который раньше не зеркалили, не сч
   });
   assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.locationId}`).sort(), ["link:claude", "mirror:bb"]);
   assert.equal(plan.nextState.entries["ru-text"]?.mirrored, true);
+});
+
+test("сервер BB зеркалит отсутствующие и более новые канонные скиллы", () => {
+  const ops = planServerBbMirror({
+    canon: [
+      { name: "a", kind: "dir", hash: "h1", mtime: 200 },
+      { name: "plug", kind: "dir", hash: "h2", mtime: 200 },
+      { name: "link", kind: "symlink", hash: "h3", mtime: 200 },
+    ],
+    dest: [{ name: "a", kind: "dir", hash: "old", mtime: 50 }],
+    pluginNames: ["plug"],
+  });
+  assert.deepEqual(ops.map((op) => `${op.name}:${op.reason}`), ["a:канон новее"]);
+});
+
+test("сервер BB не затирает более новую папку в dataDir/skills", () => {
+  const ops = planServerBbMirror({
+    canon: [{ name: "a", kind: "dir", hash: "h1", mtime: 50 }],
+    dest: [{ name: "a", kind: "dir", hash: "h2", mtime: 900 }],
+    pluginNames: [],
+  });
+  assert.deepEqual(ops, []);
+});
+
+test("хаб, уже записанный как машина BB, не считается отдельным сервером", () => {
+  assert.equal(
+    enrolledHostIsBbServer(
+      [
+        { hostname: "bb-server", status: "connected" },
+        { hostname: "mini", status: "connected" },
+      ],
+      "bb-server",
+    ),
+    true,
+  );
+  assert.equal(
+    enrolledHostIsBbServer([{ hostname: "mini", status: "connected" }], "bb-server"),
+    false,
+  );
 });

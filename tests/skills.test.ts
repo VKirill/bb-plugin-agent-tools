@@ -7,6 +7,9 @@ import {
   locationPolicy,
   planPromoteToCanon,
   resolveRowAction,
+  bbInjectBytes,
+  bbInjectTooHeavy,
+  BB_INJECT_MAX_BYTES,
   type SkillLocationScan,
 } from "../skills.ts";
 
@@ -286,4 +289,15 @@ test("имя из плагина в канон из дома не забирае
     },
   ]);
   assert.deepEqual(ops, []);
+});
+
+test("BB не примет дерево больше 10 МБ", () => {
+  assert.equal(bbInjectTooHeavy(BB_INJECT_MAX_BYTES), false);
+  assert.equal(bbInjectTooHeavy(BB_INJECT_MAX_BYTES + 1), true);
+});
+
+test("в $ идёт размер копии BB, если она есть", () => {
+  assert.equal(bbInjectBytes(1_000, 20_000_000), 20_000_000);
+  assert.equal(bbInjectBytes(1_000, 0), 1_000);
+  assert.equal(bbInjectBytes(1_000, null), 1_000);
 });

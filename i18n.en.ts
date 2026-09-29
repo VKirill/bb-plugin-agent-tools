@@ -200,6 +200,10 @@ export const EN: Record<string, string> = {
   "Локальные": "Local",
   "Не на всех машинах": "Not on every machine",
   "Отдаёт плагин": "Provided by a plugin",
+  "BB не примет": "BB will reject",
+  "Канон или копия в ~/.bb/skills больше 10 МБ — BB не подставит скилл в $":
+    "The canon or ~/.bb/skills copy is over 10 MB — BB will not inject the skill into $",
+  "Нет скиллов тяжелее 10 МБ.": "No skills over 10 MB.",
   "Обнаружены расхождения": "Drift found",
 
   // --- empty states -------------------------------------------------------
@@ -237,6 +241,11 @@ export const EN: Record<string, string> = {
   "Результат действия": "Action result",
   "раскатка пропущена — синк канона не прошёл":
     "fan-out skipped — canon sync on this machine failed",
+  "сервер BB": "BB server",
+  "сервер BB: синк канона не прошёл": "BB server: canon sync failed",
+  "на сервере BB нет канона и не задан git-remote синка":
+    "the BB server has no local canon and no git-sync remote is set",
+  "git не найден": "git was not found",
   "машина не ответила за {0} с": "the machine did not respond in {0} s",
   "машина не на связи": "machine is offline",
   "Разложить канон на всех машинах?": "Lay the canon out on all machines?",
@@ -428,8 +437,8 @@ export const EN: Record<string, string> = {
   "расхождения: не хватает {0}, отличается {1}": "drift: {0} missing, {1} different",
   "Новые серверы ({0}):": "New servers ({0}):",
   "локальный: {0}": "local: {0}",
-  "Всего {0}; не на всех машинах: {1}; расходятся: {2}":
-    "{0} total; not on every machine: {1}; diverged: {2}",
+  "Всего {0}; не на всех машинах: {1}; расходятся: {2}; BB не примет: {3}":
+    "{0} total; not on every machine: {1}; diverged: {2}; BB will reject: {3}",
   "Скилл {0}: {1} ({2} в ожидании)": "Skill {0}: {1} ({2} pending)",
   "Отдаёт плагин, не дублируем: {0}": "Provided by a plugin, not duplicated: {0}",
   "Синк скиллов: машин {0}": "Skills sync: {0} machines",

@@ -34,7 +34,17 @@ import {
   skillBackupSchema,
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
-import { classifyCanonHostStates, computeSkillRows, effectiveCanonStamp, locationPath, planPromoteToCanon } from "./skills";
+import { bbInjectBytes, bbInjectTooHeavy, classifyCanonHostStates, computeSkillRows, effectiveCanonStamp, locationPath, planPromoteToCanon, planServerBbMirror } from "./skills";
+import { resolveGitBin, syncSkillsCanon } from "./skills-sync";
+import {
+  bbServerSkillsDir,
+  canonSkillsDir,
+  extractSkillArchive,
+  fingerprintDir,
+  isSafeSkillName,
+  mirrorSkillFromCanon,
+  scanSkillHome,
+} from "./skills-server";
 import {
   setLang,
   setDictionary,
@@ -63,7 +73,7 @@ import {
   STALE_OPENCODE_PROVIDERS,
 } from "./opencode";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname as osHostname } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 
@@ -167,8 +177,12 @@ const overviewSchema = z.object({
           /** Где лежит копия помимо канона: дома CLI, куда раскатано. */
           homes: z.array(z.string()),
           mtime: z.number().nullable(),
+          /** Размер дерева, которое BB попытается подставить в `$` (дом BB, иначе канон). */
+          bytes: z.number().default(0),
         }),
       ),
+      /** Хотя бы на одной машине дерево больше 10 МБ — BB не примет скилл в `$`. */
+      tooHeavy: z.boolean().default(false),
     }),
   ),
   skillsPending: z.array(
@@ -831,11 +845,12 @@ export default async function plugin(bb: BbPluginApi) {
     // Сводка канона по машинам: одна строка на имя. Если хеши разные —
     // свежий mtime это «новее», остальные «устарел».
     const canonNames = new Set<string>();
-    const canonByHost = new Map<string, Map<string, { hash: string | null; mtime: number | null; homes: string[] }>>();
+    const canonByHost = new Map<string, Map<string, { hash: string | null; mtime: number | null; homes: string[]; bytes: number }>>();
     const pluginNames = new Set<string>();
     for (const snapshot of skillsSnapshots) {
       const canon = snapshot.scan.locations.find((item) => item.id === "agents");
-      const mine = new Map<string, { hash: string | null; mtime: number | null; homes: string[] }>();
+      const bbHome = snapshot.scan.locations.find((item) => item.id === "bb");
+      const mine = new Map<string, { hash: string | null; mtime: number | null; homes: string[]; bytes: number }>();
       for (const entry of canon?.entries ?? []) {
         if (!entry.hasSkillMd) continue;
         const homes = snapshot.scan.locations
@@ -846,10 +861,13 @@ export default async function plugin(bb: BbPluginApi) {
           )
           .map((location) => location.id);
         const stamp = effectiveCanonStamp(entry.name, entry.hash, entry.mtime, snapshot.scan.locations);
+        const bbEntry = bbHome?.entries.find((item) => item.name === entry.name && item.hasSkillMd);
+        const bbDirBytes = bbEntry?.kind === "dir" ? (bbEntry.bytes ?? 0) : null;
         mine.set(entry.name, {
           hash: stamp.hash,
           mtime: stamp.mtime,
           homes,
+          bytes: bbInjectBytes(entry.bytes ?? 0, bbDirBytes),
         });
         canonNames.add(entry.name);
       }
@@ -862,18 +880,21 @@ export default async function plugin(bb: BbPluginApi) {
         return { hash: entry?.hash ?? null, mtime: entry?.mtime ?? null };
       });
       const states = classifyCanonHostStates(stamps);
+      const hosts = skillsSnapshots.map((snapshot, index) => {
+        const entry = canonByHost.get(snapshot.hostId)?.get(name);
+        return {
+          hostId: snapshot.hostId,
+          state: states[index]!,
+          homes: entry?.homes ?? [],
+          mtime: entry?.mtime ?? null,
+          bytes: entry?.bytes ?? 0,
+        };
+      });
       return {
         name,
         fromPlugin: pluginNames.has(name),
-        hosts: skillsSnapshots.map((snapshot, index) => {
-          const entry = canonByHost.get(snapshot.hostId)?.get(name);
-          return {
-            hostId: snapshot.hostId,
-            state: states[index]!,
-            homes: entry?.homes ?? [],
-            mtime: entry?.mtime ?? null,
-          };
-        }),
+        tooHeavy: hosts.some((item) => bbInjectTooHeavy(item.bytes)),
+        hosts,
       };
     });
 
@@ -1334,6 +1355,164 @@ export default async function plugin(bb: BbPluginApi) {
     return { promoted, promoteFailed, errors };
   }
 
+  const SKILLS_ARCHIVE_TIMEOUT_MS = 120_000;
+
+  async function runServerBbSkills(dryRun: boolean, includePluginNames?: boolean) {
+    const serverLabel = t("сервер BB");
+    const empty = {
+      applied: 0,
+      failed: 0,
+      ops: [] as {
+        hostId: string;
+        hostName: string;
+        kind: "link" | "mirror" | "drop" | "pull" | "retire";
+        locationId: string;
+        name: string;
+        reason: string;
+        ok: boolean;
+        error: string | null;
+      }[],
+      skippedByPlugin: [] as string[],
+      errors: [] as string[],
+    };
+    const hostsList = await bb.sdk.hosts.list();
+    const destRoot = bbServerSkillsDir(bb.server.experimental_dataDir);
+    const canonRoot = canonSkillsDir();
+    const remote = (await readConfig()).skillsSyncRemote.trim();
+    const skipPlugins = !(includePluginNames ?? (await readConfig()).skillsFanOutPluginNames);
+    const snapshots = await readSkillsSnapshots();
+    const pluginNames = skipPlugins
+      ? [...new Set(snapshots.flatMap((item) => item.scan?.pluginNames ?? []))].sort()
+      : [];
+    const skippedByPlugin = pluginNames.slice(0, 500);
+    const errors: string[] = [];
+
+    if (remote !== "" && !dryRun) {
+      const gitBin = await resolveGitBin();
+      if (gitBin === null) {
+        errors.push(`${serverLabel}: ${t("git не найден")}`);
+      } else {
+        const sync = await syncSkillsCanon(canonRoot, remote, {
+          gitBin,
+          hostname: osHostname(),
+          fingerprintDir,
+        });
+        if (sync.ok === false) {
+          errors.push(`${serverLabel}: ${t("сервер BB: синк канона не прошёл")}${sync.error ? ` (${sync.error})` : ""}`);
+        }
+      }
+    }
+
+    const canonScan = await scanSkillHome("agents", canonRoot);
+    const destScan = await scanSkillHome("bb", destRoot);
+    const localCanon = canonScan.entries.filter((item) => item.hasSkillMd);
+    const destEntries = destScan.entries.filter((item) => item.hasSkillMd);
+
+    const connectedIds = new Set(hostsList.filter((item) => item.status === "connected").map((item) => item.id));
+    let source: (typeof snapshots)[number] | null = null;
+    let sourceCount = -1;
+    for (const snap of snapshots) {
+      if (!connectedIds.has(snap.hostId) || snap.scan === undefined) continue;
+      const agents = snap.scan.locations.find((item) => item.id === "agents");
+      const count = agents?.entries.filter((item) => item.hasSkillMd).length ?? 0;
+      if (count > sourceCount) {
+        source = snap;
+        sourceCount = count;
+      }
+    }
+    const hostCanon =
+      source?.scan?.locations.find((item) => item.id === "agents")?.entries.filter((item) => item.hasSkillMd) ?? [];
+    const localNames = new Set(localCanon.map((item) => item.name));
+    const combinedCanon = [
+      ...localCanon,
+      ...hostCanon.filter((item) => !localNames.has(item.name)),
+    ];
+
+    if (combinedCanon.length === 0) {
+      errors.push(`${serverLabel}: ${t("на сервере BB нет канона и не задан git-remote синка")}`);
+      return { ...empty, failed: 1, skippedByPlugin, errors: errors.slice(0, 100) };
+    }
+
+    const planned = planServerBbMirror({
+      canon: combinedCanon.map((item) => ({
+        name: item.name,
+        kind: item.kind,
+        hash: item.hash,
+        mtime: item.mtime,
+      })),
+      dest: destEntries.map((item) => ({
+        name: item.name,
+        kind: item.kind,
+        hash: item.hash,
+        mtime: item.mtime,
+      })),
+      pluginNames,
+    });
+
+    let applied = 0;
+    let failed = 0;
+    const ops: typeof empty.ops = [];
+    for (const op of planned) {
+      if (!isSafeSkillName(op.name)) {
+        failed += 1;
+        ops.push({
+          hostId: "bb-server",
+          hostName: serverLabel,
+          kind: "mirror",
+          locationId: "bb",
+          name: op.name,
+          reason: op.reason,
+          ok: false,
+          error: t("ошибка"),
+        });
+        continue;
+      }
+      try {
+        if (localNames.has(op.name)) {
+          await mirrorSkillFromCanon(canonRoot, destRoot, op.name, dryRun);
+        } else if (source === null) {
+          throw new Error(t("на сервере BB нет канона и не задан git-remote синка"));
+        } else {
+          const packed = await callHostTimed(
+            (timeoutMs) =>
+              host.call("skills_archive", { name: op.name }, { hostId: source.hostId, timeoutMs }),
+            SKILLS_ARCHIVE_TIMEOUT_MS,
+          );
+          if (packed.ok !== true || packed.archiveBase64 === null) {
+            throw new Error(packed.error ?? t("ошибка"));
+          }
+          await extractSkillArchive(destRoot, op.name, packed.archiveBase64, dryRun);
+        }
+        applied += 1;
+        ops.push({
+          hostId: "bb-server",
+          hostName: serverLabel,
+          kind: "mirror",
+          locationId: "bb",
+          name: op.name,
+          reason: op.reason,
+          ok: true,
+          error: null,
+        });
+      } catch (cause) {
+        failed += 1;
+        const error = cause instanceof Error ? cause.message : String(cause);
+        errors.push(`${serverLabel} · ${op.name}: ${error}`);
+        ops.push({
+          hostId: "bb-server",
+          hostName: serverLabel,
+          kind: "mirror",
+          locationId: "bb",
+          name: op.name,
+          reason: op.reason,
+          ok: false,
+          error,
+        });
+      }
+    }
+    return { applied, failed, ops, skippedByPlugin, errors: errors.slice(0, 100) };
+  }
+
   /**
    * One button / CLI / hourly tick: promote winners into canon, sync git, fan-out.
    * dry-run does not sync and does not write.
@@ -1355,16 +1534,19 @@ export default async function plugin(bb: BbPluginApi) {
     }
     const fan = await runSkillsFanOut(hostId, dryRun, includePluginNames, skipHostIds);
     errors.push(...fan.errors);
+    const server = await runServerBbSkills(dryRun, includePluginNames);
+    errors.push(...server.errors);
+    const skipped = [...new Set([...fan.skippedByPlugin, ...server.skippedByPlugin])].sort().slice(0, 500);
     return {
       synced,
       syncFailed,
       remoteConfigured,
       promoted: promote.promoted,
       promoteFailed: promote.promoteFailed,
-      applied: fan.applied,
-      failed: fan.failed,
-      ops: fan.ops,
-      skippedByPlugin: fan.skippedByPlugin,
+      applied: fan.applied + server.applied,
+      failed: fan.failed + server.failed,
+      ops: [...fan.ops, ...server.ops].slice(0, 500),
+      skippedByPlugin: skipped,
       errors: errors.slice(0, 100),
     };
   }
@@ -2501,7 +2683,7 @@ export default async function plugin(bb: BbPluginApi) {
                   return `${names[index] ?? item.hostId}: ${mark}`;
                 })
                 .join("  ");
-              return `${row.name}${row.fromPlugin ? t(" (плагин)") : ""}  ${cells}`;
+              return `${row.name}${row.fromPlugin ? t(" (плагин)") : ""}${row.tooHeavy ? `  ${t("BB не примет")}` : ""}  ${cells}`;
             });
             const gaps = current.skillCanon.filter((row) => row.hosts.some((item) => item.state === "missing")).length;
             const differs = current.skillCanon.filter((row) =>
@@ -2509,11 +2691,12 @@ export default async function plugin(bb: BbPluginApi) {
                 (item) => item.state === "differs" || item.state === "newer" || item.state === "stale",
               ),
             ).length;
+            const heavy = current.skillCanon.filter((row) => row.tooHeavy).length;
             return reply(
               current.skillCanon,
               current.skillCanon.length === 0
                 ? t("Канон пуст или машины ещё не просканированы.")
-                : `${lines.join("\n")}\n\n${tp("Всего {0}; не на всех машинах: {1}; расходятся: {2}", current.skillCanon.length, gaps, differs)}`,
+                : `${lines.join("\n")}\n\n${tp("Всего {0}; не на всех машинах: {1}; расходятся: {2}; BB не примет: {3}", current.skillCanon.length, gaps, differs, heavy)}`,
             );
           }
           const rows = current.skills

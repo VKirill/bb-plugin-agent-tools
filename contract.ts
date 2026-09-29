@@ -96,6 +96,8 @@ export const skillsScanSchema = z.object({
               hash: z.string().max(64).nullable(),
               mtime: z.number().nullable(),
               hasSkillMd: z.boolean(),
+              /** Размер дерева; 0 у старых снимков, пока не пересканировали. */
+              bytes: z.number().nonnegative().default(0),
             }),
           )
           .max(500),
@@ -428,6 +430,15 @@ export const hostContract = defineRpcContract({
       ok: z.boolean(),
       error: z.string().max(2000).nullable(),
       message: z.string().max(2000).nullable(),
+    }),
+  },
+  /** Pack one canon skill so the BB server process can write dataDir/skills. */
+  skills_archive: {
+    input: z.object({ name: z.string().min(1).max(120) }),
+    output: z.object({
+      ok: z.boolean(),
+      error: z.string().max(300).nullable(),
+      archiveBase64: z.string().max(12_000_000).nullable(),
     }),
   },
   opencode_scan: { input: z.object({}), output: openCodeScanSchema },

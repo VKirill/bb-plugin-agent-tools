@@ -586,7 +586,7 @@ function canonHostDiverged(state: string): boolean {
 }
 
 function SkillCanon({ data, selected }: { data: Overview; selected: string | null }) {
-  const [filter, setFilter] = useState<"all" | "gaps" | "differs" | "plugin">("all");
+  const [filter, setFilter] = useState<"all" | "gaps" | "differs" | "plugin" | "heavy">("all");
   const [query, setQuery] = useState("");
   const rows = data.skillCanon;
   const hosts = data.skills.map((view) => ({ hostId: view.hostId, hostName: view.hostName }));
@@ -596,6 +596,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
       gaps: rows.filter((row) => row.hosts.some((item) => item.state === "missing")).length,
       differs: rows.filter((row) => row.hosts.some((item) => canonHostDiverged(item.state))).length,
       plugin: rows.filter((row) => row.fromPlugin).length,
+      heavy: rows.filter((row) => row.tooHeavy).length,
     }),
     [rows],
   );
@@ -606,6 +607,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
       if (filter === "gaps") return row.hosts.some((item) => item.state === "missing");
       if (filter === "differs") return row.hosts.some((item) => canonHostDiverged(item.state));
       if (filter === "plugin") return row.fromPlugin;
+      if (filter === "heavy") return row.tooHeavy;
       return true;
     });
   }, [rows, filter, query]);
@@ -628,6 +630,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
           ["gaps", t("Не на всех машинах")],
           ["differs", t("Расходятся")],
           ["plugin", t("Отдаёт плагин")],
+          ["heavy", t("BB не примет")],
         ] as const).map(([key, label]) => (
           <Button
             key={key}
@@ -652,7 +655,9 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
             ? t("Набор навыков одинаковый на всех машинах.")
             : filter === "differs"
               ? t("Расхождений между машинами нет.")
-              : t("Ничего не нашлось.")}
+              : filter === "heavy"
+                ? t("Нет скиллов тяжелее 10 МБ.")
+                : t("Ничего не нашлось.")}
         </p>
       ) : (
         <div className="max-h-[32rem] max-w-full overflow-auto overscroll-x-contain rounded-md border">
@@ -674,6 +679,15 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                     {row.fromPlugin ? (
                       <Badge variant="outline" className="ml-2 py-0 font-normal text-muted-foreground">
                         {t("плагин")}
+                      </Badge>
+                    ) : null}
+                    {row.tooHeavy ? (
+                      <Badge
+                        variant="destructive"
+                        className="ml-2 py-0 font-normal"
+                        title={t("Канон или копия в ~/.bb/skills больше 10 МБ — BB не подставит скилл в $")}
+                      >
+                        {t("BB не примет")} · {backupSize(Math.max(0, ...row.hosts.map((item) => item.bytes)))}
                       </Badge>
                     ) : null}
                   </TableCell>
