@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { clipErrorText, formatSkillsSyncError, gitBinSearchDirs, parseUntrackedOverwriteNames } from "./i18n.js";
+import { SKILL_JUNK_DIRS } from "./skill-tree.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -184,6 +185,15 @@ export async function syncSkillsCanon(
       const isLink = await lstat(path.join(dir, name)).then((info) => info.isSymbolicLink()).catch(() => false);
       if (!isLink) continue;
       const line = `/${name}`;
+      if (!lines.has(line)) {
+        lines.add(line);
+        ignoreDirty = true;
+      }
+    }
+    // Зависимости и кеши сборки в канон не коммитим ни с одной машины.
+    for (const junk of SKILL_JUNK_DIRS) {
+      if (junk === ".git") continue;
+      const line = `${junk}/`;
       if (!lines.has(line)) {
         lines.add(line);
         ignoreDirty = true;

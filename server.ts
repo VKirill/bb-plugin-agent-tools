@@ -862,7 +862,8 @@ export default async function plugin(bb: BbPluginApi) {
           .map((location) => location.id);
         const stamp = effectiveCanonStamp(entry.name, entry.hash, entry.mtime, snapshot.scan.locations);
         const bbEntry = bbHome?.entries.find((item) => item.name === entry.name && item.hasSkillMd);
-        const bbDirBytes = bbEntry?.kind === "dir" ? (bbEntry.bytes ?? 0) : null;
+        // Копия в доме BB меряется так, как её перенесёт BB, — вместе с мусором.
+        const bbDirBytes = bbEntry?.kind === "dir" ? (bbEntry.bbBytes || bbEntry.bytes || 0) : null;
         mine.set(entry.name, {
           hash: stamp.hash,
           mtime: stamp.mtime,
@@ -1439,12 +1440,14 @@ export default async function plugin(bb: BbPluginApi) {
         kind: item.kind,
         hash: item.hash,
         mtime: item.mtime,
+        bytes: item.bytes ?? 0,
       })),
       dest: destEntries.map((item) => ({
         name: item.name,
         kind: item.kind,
         hash: item.hash,
         mtime: item.mtime,
+        junk: item.junk ?? false,
       })),
       pluginNames,
     });
@@ -1453,6 +1456,21 @@ export default async function plugin(bb: BbPluginApi) {
     let failed = 0;
     const ops: typeof empty.ops = [];
     for (const op of planned) {
+      if (op.blocked === true) {
+        failed += 1;
+        errors.push(`${serverLabel} · ${op.name}: ${op.reason}`);
+        ops.push({
+          hostId: "bb-server",
+          hostName: serverLabel,
+          kind: "mirror",
+          locationId: "bb",
+          name: op.name,
+          reason: op.reason,
+          ok: false,
+          error: op.reason,
+        });
+        continue;
+      }
       if (!isSafeSkillName(op.name)) {
         failed += 1;
         ops.push({

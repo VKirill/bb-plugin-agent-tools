@@ -228,3 +228,52 @@ test("хаб, уже записанный как машина BB, не счит�
     false,
   );
 });
+
+test("копия в доме BB с node_modules перекладывается, хоть хеш и совпадает", () => {
+  const plan = planFanOut({
+    canonicalPath: CANON,
+    locations: [
+      scan("agents", CANON, [dir("a", "h1")]),
+      scan("bb", BB, [{ ...dir("a", "h1"), junk: true }, dir("b", "h2")]),
+    ],
+    pluginNames: [],
+    state: { entries: { a: { hash: "h1", mirrored: true }, b: { hash: "h2", mirrored: true } } },
+  });
+  assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.name}`), ["mirror:a", "drop:b"]);
+});
+
+test("скилл тяжелее лимита BB в дом BB не кладётся, а попадает в blocked", () => {
+  const plan = planFanOut({
+    canonicalPath: CANON,
+    locations: [
+      scan("agents", CANON, [{ ...dir("huge", "h1"), bytes: 11 * 1024 * 1024 }]),
+      scan("bb", BB, []),
+      scan("claude", CLAUDE, []),
+    ],
+    pluginNames: [],
+    state: EMPTY,
+  });
+  assert.deepEqual(plan.ops.map((op) => `${op.kind}:${op.locationId}`), ["link:claude"]);
+  assert.equal(plan.blocked.length, 1);
+  assert.equal(plan.blocked[0]!.name, "huge");
+  assert.match(plan.blocked[0]!.reason, /10 МБ/);
+});
+
+test("сервер BB: мусор в копии — перекладываем; тяжёлый канон — blocked", () => {
+  const ops = planServerBbMirror({
+    canon: [
+      { name: "a", kind: "dir", hash: "h1", mtime: 100 },
+      { name: "huge", kind: "dir", hash: "h2", mtime: 100, bytes: 20 * 1024 * 1024 },
+      { name: "ok", kind: "dir", hash: "h3", mtime: 100 },
+    ],
+    dest: [
+      { name: "a", kind: "dir", hash: "h1", mtime: 100, junk: true },
+      { name: "ok", kind: "dir", hash: "h3", mtime: 100 },
+    ],
+    pluginNames: [],
+  });
+  assert.deepEqual(
+    ops.map((op) => `${op.name}:${op.blocked === true ? "blocked" : "mirror"}`),
+    ["a:mirror", "huge:blocked"],
+  );
+});

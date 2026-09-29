@@ -17,6 +17,11 @@ export interface SkillLocationScan {
     hasSkillMd: boolean;
     /** Tree size in bytes; 0 when unknown (old snapshots). */
     bytes?: number;
+    /** Size and file count as the BB host-daemon counts them (junk included). */
+    bbBytes?: number;
+    bbFiles?: number;
+    /** node_modules / .venv / __pycache__ … inside the tree. */
+    junk?: boolean;
   }[];
 }
 
@@ -140,8 +145,20 @@ export function locationPath(locationId: string): string {
 /** BB host-daemon will not stage a skill tree larger than this into `$`. */
 export const BB_INJECT_MAX_BYTES = 10 * 1024 * 1024;
 
-export function bbInjectTooHeavy(bytes: number): boolean {
-  return bytes > BB_INJECT_MAX_BYTES;
+/** BB host-daemon limit on files in one skill tree. */
+export const BB_INJECT_MAX_FILES = 1000;
+
+export function bbInjectTooHeavy(bytes: number, files = 0): boolean {
+  return bytes > BB_INJECT_MAX_BYTES || files > BB_INJECT_MAX_FILES;
+}
+
+/** Why BB would refuse this tree, or null. Human text for reports. */
+export function bbTreeProblem(bytes: number, files = 0): string | null {
+  if (bytes > BB_INJECT_MAX_BYTES) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} МБ — больше лимита BB 10 МБ, BB не примет скилл`;
+  }
+  if (files > BB_INJECT_MAX_FILES) return `${files} файлов — больше лимита BB ${BB_INJECT_MAX_FILES}, BB не примет скилл`;
+  return null;
 }
 
 /**
@@ -387,6 +404,8 @@ export interface FanOutPlan {
   nextState: FanOutState;
   /** Имена, которые уже отдаёт плагин-маркетплейс: их не дублируем. */
   skippedByPlugin: string[];
+  /** Скиллы, которые BB не примет даже без мусора: в дом BB не кладём. */
+  blocked: { name: string; reason: string }[];
 }
 
 export interface FanOutInput {
@@ -404,6 +423,8 @@ interface Entry {
   hash: string | null;
   mtime: number | null;
   hasSkillMd: boolean;
+  bytes?: number;
+  junk?: boolean;
 }
 
 function skillEntries(location: SkillLocationScan | undefined): Map<string, Entry> {
@@ -432,6 +453,7 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
   const skippedByPlugin: string[] = [];
   const retired = new Set<string>();
   const pulled = new Set<string>();
+  const blocked: FanOutPlan["blocked"] = [];
 
   // Дом BB — единственный, где человек заводит и удаляет скиллы руками через
   // интерфейс, поэтому только он может забрать скилл в канон и увести в архив.
@@ -448,7 +470,12 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
     // вторым экземпляром того же в списке навыков.
     const fromPlugin = plugins.has(name);
     if (fromPlugin && !skippedByPlugin.includes(name)) skippedByPlugin.push(name);
-    if (bb !== undefined && bb.exists && !sourceInBb && !fromPlugin) {
+    // Канон сам по себе (мусор при копировании отбрасывается) больше лимита BB:
+    // копия в дом BB только сломает старт чатов. Ничего не делаем, сообщаем.
+    const canonProblem = bbTreeProblem(canon.bytes ?? 0);
+    if (bb !== undefined && bb.exists && !sourceInBb && !fromPlugin && canonProblem !== null) {
+      blocked.push({ name, reason: canonProblem });
+    } else if (bb !== undefined && bb.exists && !sourceInBb && !fromPlugin) {
       if (mirror === undefined) {
         // «Удалён человеком» — только если этот скилл мы туда раскладывали.
         // Скилл, который раньше пропускали (его отдавал плагин), просто не
@@ -466,6 +493,9 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
         } else {
           ops.push({ kind: "pull", locationId: "bb", name, reason: "правка в BB новее" });
         }
+      } else if (mirror.junk === true && mirror.kind === "dir") {
+        // Хеш мусор не учитывает, а BB переносит его целиком: перекладываем чистую копию.
+        ops.push({ kind: "mirror", locationId: "bb", name, reason: "в копии BB мусор (node_modules и т.п.)" });
       }
     }
     if (retired.has(name)) continue;
@@ -539,18 +569,19 @@ export function planFanOut(input: FanOutInput): FanOutPlan {
     };
   }
 
-  return { ops, nextState: { entries }, skippedByPlugin };
+  return { ops, nextState: { entries }, skippedByPlugin, blocked };
 }
 
-export type ServerBbMirrorOp = { name: string; reason: string };
+/** blocked — не копировать: BB всё равно не примет, reason объясняет почему. */
+export type ServerBbMirrorOp = { name: string; reason: string; blocked?: boolean };
 
 /**
  * Plan copies into the BB server's user-skill root (`dataDir/skills`).
  * Does not pull or retire: those belong to enrolled machines' canons.
  */
 export function planServerBbMirror(input: {
-  canon: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null }>;
-  dest: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null }>;
+  canon: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null; bytes?: number }>;
+  dest: Array<{ name: string; kind: "dir" | "symlink"; hash: string | null; mtime: number | null; junk?: boolean }>;
   pluginNames: string[];
 }): ServerBbMirrorOp[] {
   const plugins = new Set(input.pluginNames);
@@ -560,11 +591,19 @@ export function planServerBbMirror(input: {
     if (plugins.has(canon.name) || canon.kind === "symlink" || canon.hash === null) continue;
     const dest = destByName.get(canon.name);
     if (dest?.kind === "symlink") continue;
+    const problem = bbTreeProblem(canon.bytes ?? 0);
+    if (problem !== null) {
+      ops.push({ name: canon.name, reason: problem, blocked: true });
+      continue;
+    }
     if (dest === undefined || dest.hash === null) {
       ops.push({ name: canon.name, reason: "нет на сервере BB" });
       continue;
     }
-    if (dest.hash === canon.hash) continue;
+    if (dest.hash === canon.hash) {
+      if (dest.junk === true) ops.push({ name: canon.name, reason: "в копии на сервере BB мусор (node_modules и т.п.)" });
+      continue;
+    }
     if ((canon.mtime ?? 0) >= (dest.mtime ?? 0)) {
       ops.push({ name: canon.name, reason: "канон новее" });
     }

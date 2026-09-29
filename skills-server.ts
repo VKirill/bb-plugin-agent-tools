@@ -6,15 +6,11 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { SkillLocationScan } from "./skills.js";
+import { copySkillTree, isSkillJunk, measureBbTree, SKILL_TAR_EXCLUDES } from "./skill-tree.js";
 
 const execFileAsync = promisify(execFile);
 const FINGERPRINT_MAX_FILES = 500;
 
-function isSkillJunk(name: string): boolean {
-  if (name === "__pycache__" || name === "node_modules" || name === ".git") return true;
-  if (name === ".DS_Store" || name === ".backup.json") return true;
-  return name.endsWith(".pyc") || name.endsWith(".bak") || name.endsWith(".tmp");
-}
 
 async function exists(target: string): Promise<boolean> {
   try {
@@ -79,6 +75,7 @@ export async function scanSkillHome(id: string, dir: string): Promise<SkillLocat
       const isSymlink = info.isSymbolicLink();
       const hasSkillMd = await exists(path.join(full, "SKILL.md"));
       const fingerprint = hasSkillMd ? await fingerprintDir(full) : null;
+      const tree = hasSkillMd && !isSymlink ? await measureBbTree(full) : null;
       entries.push({
         name,
         kind: isSymlink ? "symlink" : "dir",
@@ -87,6 +84,9 @@ export async function scanSkillHome(id: string, dir: string): Promise<SkillLocat
         mtime: fingerprint?.mtime ?? null,
         hasSkillMd,
         bytes: fingerprint?.bytes ?? 0,
+        bbBytes: tree?.bytes ?? 0,
+        bbFiles: tree?.files ?? 0,
+        junk: (tree?.junk.length ?? 0) > 0,
       });
     }
   }
@@ -110,7 +110,7 @@ async function backupSkillDir(source: string, name: string, reason: string): Pro
     new Date().toISOString().replace(/[:.]/g, "-"),
   );
   await mkdir(path.dirname(dest), { recursive: true });
-  await cp(source, dest, { recursive: true, dereference: true });
+  await copySkillTree(source, dest);
   await writeFile(
     path.join(dest, ".backup.json"),
     `${JSON.stringify({ name, at: new Date().toISOString(), reason, locationId: "bb-server", machine: os.hostname() }, null, 2)}\n`,
@@ -124,7 +124,7 @@ export async function mirrorSkillFromCanon(canonRoot: string, destRoot: string, 
   await backupSkillDir(here, name, "заменено каноном на сервере BB");
   await rm(here, { recursive: true, force: true });
   await mkdir(destRoot, { recursive: true });
-  await cp(canon, here, { recursive: true, dereference: true });
+  await copySkillTree(canon, here);
 }
 
 export async function extractSkillArchive(destRoot: string, name: string, archiveBase64: string, dryRun: boolean): Promise<void> {
@@ -136,7 +136,9 @@ export async function extractSkillArchive(destRoot: string, name: string, archiv
   const tmp = path.join(os.tmpdir(), `bb-agent-tools-skill-${process.pid}-${Date.now()}.tgz`);
   await writeFile(tmp, Buffer.from(archiveBase64, "base64"));
   try {
-    await execFileAsync("tar", ["xzf", tmp, "-C", destRoot], { maxBuffer: 8 * 1024 * 1024 });
+    // Архив со старой версии плагина может нести node_modules — не распаковываем мусор.
+    const excludes = SKILL_TAR_EXCLUDES.map((pattern) => `--exclude=${pattern}`);
+    await execFileAsync("tar", ["xzf", tmp, ...excludes, "-C", destRoot], { maxBuffer: 8 * 1024 * 1024 });
   } finally {
     await rm(tmp, { force: true });
   }

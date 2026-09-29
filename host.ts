@@ -16,6 +16,7 @@ import { fromDialect, mergeEntry, toDialect } from "./normalize.js";
 import { readServers, removeServer, upsertServer } from "./toml-mcp.js";
 import { locationPolicy, planFanOut, type FanOutOp, type FanOutState, type SkillActionMode } from "./skills.js";
 import { resolveGitBin, runGit, syncSkillsCanon } from "./skills-sync.js";
+import { copySkillTree, isSkillJunk, measureBbTree, SKILL_TAR_EXCLUDES } from "./skill-tree.js";
 import { probeServer } from "./probe.js";
 import { parseOpenCodeText, applyOpenCodeOps } from "./opencode.js";
 import { formatSkillsSyncError, gitBinSearchDirs } from "./i18n.js";
@@ -25,15 +26,6 @@ export { resolveGitBin, runGit, syncSkillsCanon };
 const BACKUP_PREFIX = ".bak-bb-mcp-";
 const execFileAsync = promisify(execFile);
 
-/**
- * Мусор, который не считается содержимым скилла: следы сборки и редактора.
- * Иначе `__pycache__` и `.bak` делают версии «расходящимися» на пустом месте.
- */
-function isSkillJunk(name: string): boolean {
-  if (name === "__pycache__" || name === "node_modules" || name === ".git") return true;
-  if (name === ".DS_Store" || name === ".backup.json") return true;
-  return name.endsWith(".pyc") || name.endsWith(".bak") || name.endsWith(".tmp");
-}
 
 const FINGERPRINT_MAX_FILES = 500;
 /** Отпечаток всей папки скилла: содержимое всех файлов (без .git/node_modules)
@@ -314,7 +306,7 @@ async function backupSkillDir(
   if (info === null || info.isSymbolicLink()) return null;
   const dest = path.join(expand(SKILL_BACKUP_ROOT), name, stamp());
   await mkdir(path.dirname(dest), { recursive: true });
-  await cp(source, dest, { recursive: true, dereference: true });
+  await copySkillTree(source, dest);
   const fingerprint = await fingerprintDir(dest);
   await writeFile(
     path.join(dest, ".backup.json"),
@@ -410,6 +402,8 @@ async function scanSkills(signal?: AbortSignal): Promise<SkillsScan> {
           : null;
         const hasSkillMd = await exists(path.join(full, "SKILL.md"));
         const fingerprint = hasSkillMd ? await fingerprintDir(full) : null;
+        // Реальную папку меряем так, как её увидит BB: с мусором и симлинками.
+        const tree = hasSkillMd && !isSymlink ? await measureBbTree(full) : null;
         entries.push({
           name,
           kind: isSymlink ? "symlink" : "dir",
@@ -418,6 +412,9 @@ async function scanSkills(signal?: AbortSignal): Promise<SkillsScan> {
           mtime: fingerprint?.mtime ?? null,
           hasSkillMd,
           bytes: fingerprint?.bytes ?? 0,
+          bbBytes: tree?.bytes ?? 0,
+          bbFiles: tree?.files ?? 0,
+          junk: (tree?.junk.length ?? 0) > 0,
         });
       }
     }
@@ -530,7 +527,7 @@ async function adoptSkill(
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       await rename(canonicalName, path.join(backupRoot, `${name}.${stamp}`));
     }
-    await cp(targetDir, canonicalName, { recursive: true, dereference: true });
+    await copySkillTree(targetDir, canonicalName);
     return { ok: true, error: null };
   }
   if (mode === "unlink") return { ok: false, error: "это не ссылка, а реальная папка" };
@@ -938,7 +935,7 @@ export default experimental_defineHostEntry({
               await backupSkillDir(here, op.name, op.locationId, `заменено каноном: ${op.reason}`);
               await rm(here, { recursive: true, force: true });
               await mkdir(location.path, { recursive: true });
-              await cp(canon, here, { recursive: true, dereference: true });
+              await copySkillTree(canon, here);
             } else if (op.kind === "pull") {
               const lost = await wouldLoseFiles(canon, here);
               if (lost.length > 0) {
@@ -948,7 +945,7 @@ export default experimental_defineHostEntry({
               }
               await backupSkillDir(canon, op.name, "agents", `заменено версией из ${op.locationId}: ${op.reason}`);
               await rm(canon, { recursive: true, force: true });
-              await cp(here, canon, { recursive: true, dereference: true });
+              await copySkillTree(here, canon);
             } else if (op.kind === "retire") {
               await backupSkillDir(canon, op.name, "agents", `удалён в ${op.locationId}: ${op.reason}`);
               await rm(canon, { recursive: true, force: true });
@@ -971,6 +968,9 @@ export default experimental_defineHostEntry({
             expand(SKILL_FANOUT_STATE),
             `${JSON.stringify({ at: new Date().toISOString(), entries: plan.nextState.entries }, null, 2)}\n`,
           );
+        }
+        for (const item of plan.blocked) {
+          results.push({ kind: "mirror", locationId: "bb", name: item.name, reason: item.reason, ok: false, error: item.reason });
         }
         return { ops: results, skippedByPlugin: plan.skippedByPlugin };
       },
@@ -1051,7 +1051,7 @@ export default experimental_defineHostEntry({
         const canon = path.join(expand(".agents/skills"), name);
         const previous = await backupSkillDir(canon, name, "agents", "заменено восстановлением из архива");
         await rm(canon, { recursive: true, force: true });
-        await cp(source, canon, { recursive: true, dereference: true });
+        await copySkillTree(source, canon);
         await rm(path.join(canon, ".backup.json"), { force: true });
         return {
           ok: true,
@@ -1095,7 +1095,9 @@ export default experimental_defineHostEntry({
         if (tarBin === null) return { ok: false, error: "tar не найден", archiveBase64: null };
         const maxBytes = 8 * 1024 * 1024;
         try {
-          const { stdout } = await execFileAsync(tarBin, ["czf", "-", "-C", expand(".agents/skills"), name], {
+          // Мусор (node_modules и т.п.) на сервер BB не везём: BB отказал бы всему скиллу.
+          const excludes = SKILL_TAR_EXCLUDES.map((pattern) => `--exclude=${pattern}`);
+          const { stdout } = await execFileAsync(tarBin, ["czf", "-", ...excludes, "-C", expand(".agents/skills"), name], {
             encoding: "buffer",
             maxBuffer: maxBytes + 1,
           });

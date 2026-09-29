@@ -98,6 +98,11 @@ export const skillsScanSchema = z.object({
               hasSkillMd: z.boolean(),
               /** Размер дерева; 0 у старых снимков, пока не пересканировали. */
               bytes: z.number().nonnegative().default(0),
+              /** Размер и число файлов так, как их считает BB (с мусором). */
+              bbBytes: z.number().nonnegative().default(0),
+              bbFiles: z.number().nonnegative().default(0),
+              /** Внутри есть node_modules / .venv / __pycache__ … */
+              junk: z.boolean().default(false),
             }),
           )
           .max(500),
