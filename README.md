@@ -1,6 +1,21 @@
+---
+title: Agent Tools for BB
+type: overview
+created: 2026-09-18
+updated: 2026-09-30
+status: active
+confidence: medium
+tags: [bb-plugin, mcp, agent-skills]
+sources:
+  - package.json
+  - server.ts
+  - app.tsx
+  - docs/overview.md
+  - docs/deployment.md
+---
 # Agent Tools for BB
 
-Agent Tools is a BB plugin for viewing MCP servers, CLI plugins, and agent skills across connected BB machines. It provides a shared MCP catalogue, a skills canon with explicit sync and fan-out actions, and OpenCode provider/model comparison.
+Agent Tools is a BB plugin for viewing MCP servers, CLI plugins, and agent skills across connected BB machines (`package.json:1-3`, `server.ts:479-525`). It provides a shared MCP catalogue, a skills canon with explicit sync and fan-out actions, and OpenCode provider/model comparison (`docs/overview.md:23-29`).
 
 ## Quick start
 
@@ -10,7 +25,7 @@ npm run build
 bb plugin install .
 ```
 
-Open the **Agent Tools** page in BB to review machine inventories and choose actions. See [Deployment](docs/deployment.md) for configuration and development steps.
+Open the **Agent Tools** page in BB to see the machine selector and its MCP, skills, archive, plugins, and OpenCode tabs (`app.tsx:3275-3345`). See [Deployment](docs/deployment.md) for configuration and build/install steps (`docs/deployment.md:26-66`).
 
 ## Documentation
 

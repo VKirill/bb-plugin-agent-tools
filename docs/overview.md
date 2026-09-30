@@ -2,7 +2,7 @@
 title: Agent Tools overview
 type: overview
 created: 2026-09-27
-updated: 2026-09-28
+updated: 2026-09-30
 status: active
 confidence: high
 tags: [bb-plugin, mcp, agent-skills]
@@ -20,11 +20,11 @@ sources:
   - AGENTS.md
 ---
 # Agent Tools overview
-Agent Tools is a BB plugin that inventories MCP servers, CLI plugins, and agent skills on enrolled BB machines, then provides explicit operations to reconcile those resources (`server.ts:465-524`, `host.ts:998-1000`).
+Agent Tools is a BB plugin that inventories MCP servers, CLI plugins, and agent skills on enrolled BB machines, then provides explicit operations to reconcile those resources (`server.ts:479-525`, `host.ts:783-785`).
 
 ## What it is
 
-The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:465-525`, `server.ts:1854-2065`, `server.ts:2153-2166`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:1-19`, `host.ts:998-1000`).
+The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:479-525`, `server.ts:2054-2265`, `server.ts:2353-2356`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:783-785`, `host.ts:785-817`).
 
 The main areas are the MCP catalogue and sync, skill canon and fan-out, OpenCode configuration comparison, and CLI plugin inventory (`app.tsx:3266-3337`). The plugin supports Russian and English UI and CLI text (`i18n.ts:8-69`, `i18n.en.ts:4-63`).
 
