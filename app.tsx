@@ -30,7 +30,7 @@ import {
   type SkillRow as SkillRowT,
 } from "./skills";
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
-import { t, tp, plural, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, type Lang } from "./i18n";
+import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, type Lang } from "./i18n";
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
@@ -321,13 +321,14 @@ function metamcpStdioServers(data: Overview, hostId: string): McpServer[] {
   );
 }
 
-const STATE_LABEL: Record<CellState, string> = {
+// Labels are built on render: `t` at module load would freeze the language picked before the setting arrives.
+const stateLabels = (): Record<CellState, string> => ({
   present: t("есть"),
   partial: t("есть не во всех CLI"),
   missing: t("не хватает"),
   different: t("отличается"),
   "n/a": t("агент не управляется"),
-};
+});
 
 const STATE_COLOR: Record<CellState, string> = {
   present: "bg-success",
@@ -341,8 +342,8 @@ function StateDot({ state }: { state: CellState }) {
   return (
     <span
       role="img"
-      aria-label={STATE_LABEL[state]}
-      title={STATE_LABEL[state]}
+      aria-label={stateLabels()[state]}
+      title={stateLabels()[state]}
       className={cn("inline-block size-1.5 rounded-full", STATE_COLOR[state])}
     />
   );
@@ -372,11 +373,11 @@ function StateLegend() {
 /** Состояние «включён/выключен по конфигу»: одно значение или агрегат по нескольким occurrences. */
 type EnabledState = "enabled" | "disabled" | "mixed";
 
-const ENABLED_LABEL: Record<EnabledState, string> = {
+const enabledLabels = (): Record<EnabledState, string> => ({
   enabled: t("включён в конфиге"),
   disabled: t("выключен в конфиге"),
   mixed: t("включён не везде"),
-};
+});
 
 const ENABLED_COLOR: Record<EnabledState, string> = {
   enabled: "bg-success",
@@ -390,7 +391,7 @@ const ENABLED_COLOR: Record<EnabledState, string> = {
  * агрегат disabled по всем occurrences, если сервер найден в нескольких местах).
  */
 function EnabledDot({ state, note }: { state: EnabledState; note?: string }) {
-  const label = ENABLED_LABEL[state];
+  const label = enabledLabels()[state];
   return (
     <span
       role="img"
@@ -426,7 +427,7 @@ function EnabledLegend() {
  * разошлось, success — содержимое совпадает с каноном (копию можно убрать
  * безопасно), bg-border — трогать не нужно.
  */
-const SKILL_STATE_LABEL: Record<string, string> = {
+const skillStateLabels = (): Record<string, string> => ({
   "only-here": t("новый — не в каноне"),
   diverged: t("расходится с каноном"),
   copy: t("копия канона"),
@@ -434,9 +435,9 @@ const SKILL_STATE_LABEL: Record<string, string> = {
   "stray-link": t("лишняя ссылка"),
   "bb-registry": t("дубль реестра BB"),
   "canonical-source": t("источник канона"),
-};
+});
 
-const SKILL_STATE_HINT: Record<string, string> = {
+const skillStateHints = (): Record<string, string> => ({
   "only-here": t("в каноне такого скилла нет — перенести"),
   diverged: t("содержимое папки отличается от канона — решить, кто прав"),
   copy: t("содержимое совпадает с каноном — дубликат"),
@@ -446,7 +447,7 @@ const SKILL_STATE_HINT: Record<string, string> = {
   "bb-registry":
     t("ссылка в ~/.bb/skills — BB подставляет этот скилл в свои сессии сам, поэтому внутри BB он виден дважды; нужна только для запуска CLI вне BB"),
   "canonical-source": t("реальное хранилище, на которое ссылается канон"),
-};
+});
 
 const SKILL_STATE_COLOR: Record<string, string> = {
   "only-here": "bg-destructive",
@@ -459,12 +460,12 @@ const SKILL_STATE_COLOR: Record<string, string> = {
 };
 
 function SkillStateDot({ state }: { state: string }) {
-  const label = SKILL_STATE_LABEL[state] ?? state;
+  const label = skillStateLabels()[state] ?? state;
   return (
     <span
       role="img"
       aria-label={label}
-      title={SKILL_STATE_HINT[state] ?? label}
+      title={skillStateHints()[state] ?? label}
       className={cn(
         "inline-block size-1.5 shrink-0 rounded-full",
         SKILL_STATE_COLOR[state] ?? "bg-border",
@@ -481,7 +482,7 @@ function SkillStateLegend() {
         (state) => (
           <span key={state} className="inline-flex items-center gap-1.5">
             <SkillStateDot state={state} />
-            {SKILL_STATE_LABEL[state]}
+            {skillStateLabels()[state]}
           </span>
         ),
       )}
@@ -492,7 +493,7 @@ function SkillStateLegend() {
 /** Срезы одного набора скиллов — панель фильтров со счётчиками, как у новых серверов. */
 type SkillFilterKey = "all" | "copy" | "new" | "diverged" | "stray" | "bbdup";
 
-const SKILL_FILTERS: Array<{ key: SkillFilterKey; label: string; hint: string }> = [
+const skillFilters = (): Array<{ key: SkillFilterKey; label: string; hint: string }> => [
   { key: "all", label: t("Все"), hint: t("Все скиллы вне канона ~/.agents/skills") },
   { key: "copy", label: t("Копии"), hint: t("Содержимое совпадает с каноном — дубликаты") },
   { key: "new", label: t("Новые"), hint: t("В каноне такого скилла нет") },
@@ -735,7 +736,7 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
 function backupWhen(at: string): string {
   const date = new Date(at);
   if (Number.isNaN(date.getTime())) return at;
-  return date.toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleString(getLang() === "en" ? "en-GB" : "ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 }
 
 function backupSize(bytes: number): string {
@@ -820,7 +821,8 @@ function SkillBackups({ hostId, lastScanAt }: { hostId: string | null; lastScanA
                   </TableCell>
                   <TableCell className="text-muted-foreground">{backupWhen(row.at)}</TableCell>
                   <TableCell className="text-muted-foreground">{row.hostName}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.reason}</TableCell>
+                  {/* The host stores the reason in Russian; the dictionary carries the known ones. */}
+                  <TableCell className="text-muted-foreground">{t(row.reason)}</TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {row.files} {t("ф")} · {backupSize(row.bytes)}
                   </TableCell>
@@ -1290,7 +1292,7 @@ function CatalogTable({
 }
 
 /** Панель фильтров-пилюль над таблицей новых серверов — один набор данных в разных срезах. */
-const PENDING_FILTERS: Array<{ key: PendingFilterKey; label: string; hint?: string }> = [
+const pendingFilters = (): Array<{ key: PendingFilterKey; label: string; hint?: string }> => [
   { key: "all", label: t("В CLI"), hint: t("Подключены прямо в CLI. Состав шлюза — на вкладке «За шлюзом MetaMCP».") },
   { key: "new", label: t("Новые") },
   { key: "gateway", label: t("За шлюзом MetaMCP") },
@@ -1315,7 +1317,7 @@ function PendingFilters({
       onValueChange={(next) => onChange(next as PendingFilterKey)}
     >
       <TabsList>
-        {PENDING_FILTERS.map((option) => (
+        {pendingFilters().map((option) => (
           <TabsTrigger key={option.key} value={option.key} title={option.hint}>
             {option.label}
             <span className="ml-1.5 text-xs text-muted-foreground">
@@ -3534,7 +3536,7 @@ function CatalogPage() {
                   onValueChange={(next) => setSkillFilter(next as SkillFilterKey)}
                 >
                   <TabsList className="flex h-auto min-h-9 flex-wrap">
-                    {SKILL_FILTERS.map((option) => (
+                    {skillFilters().map((option) => (
                       <TabsTrigger key={option.key} value={option.key} title={option.hint}>
                         {option.label}
                         <span className="ml-1.5 text-xs text-muted-foreground">
@@ -3621,9 +3623,9 @@ function CatalogPage() {
                             <Badge
                               variant={row.state === "only-here" || row.state === "diverged" || row.state === "linked-external" ? "secondary" : "outline"}
                               className="font-normal"
-                              title={SKILL_STATE_HINT[row.state]}
+                              title={skillStateHints()[row.state]}
                             >
-                              {SKILL_STATE_LABEL[row.state] ?? row.state}
+                              {skillStateLabels()[row.state] ?? row.state}
                             </Badge>
                           </TableCell>
                           <TableCell className="px-2 py-2.5 text-right">

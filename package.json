@@ -3,6 +3,7 @@
   "version": "0.2.2",
   "description": "One inventory of MCP servers and agent skills across every BB machine: what is connected where, what is missing, a single skills canon with fan-out, sync and a version archive.",
   "license": "MIT",
+  "author": "Kirill Vechkasov",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/VKirill/bb-plugin-agent-tools.git"
