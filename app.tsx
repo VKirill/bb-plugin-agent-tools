@@ -330,10 +330,10 @@ const STATE_LABEL: Record<CellState, string> = {
 };
 
 const STATE_COLOR: Record<CellState, string> = {
-  present: "bg-emerald-500",
-  partial: "bg-amber-500",
+  present: "bg-success",
+  partial: "bg-warning",
   missing: "bg-destructive",
-  different: "bg-amber-500",
+  different: "bg-warning",
   "n/a": "bg-border",
 };
 
@@ -379,9 +379,9 @@ const ENABLED_LABEL: Record<EnabledState, string> = {
 };
 
 const ENABLED_COLOR: Record<EnabledState, string> = {
-  enabled: "bg-emerald-500",
+  enabled: "bg-success",
   disabled: "bg-muted-foreground/40",
-  mixed: "bg-amber-500",
+  mixed: "bg-warning",
 };
 
 /**
@@ -422,8 +422,8 @@ function EnabledLegend() {
 
 /**
  * Состояния скиллов вне канона. Цвет по общей палитре страницы и только
- * дополняет слово: destructive — в каноне такого скилла нет, amber — содержимое
- * разошлось, emerald — содержимое совпадает с каноном (копию можно убрать
+ * дополняет слово: destructive — в каноне такого скилла нет, warning — содержимое
+ * разошлось, success — содержимое совпадает с каноном (копию можно убрать
  * безопасно), bg-border — трогать не нужно.
  */
 const SKILL_STATE_LABEL: Record<string, string> = {
@@ -450,11 +450,11 @@ const SKILL_STATE_HINT: Record<string, string> = {
 
 const SKILL_STATE_COLOR: Record<string, string> = {
   "only-here": "bg-destructive",
-  diverged: "bg-amber-500",
-  copy: "bg-emerald-500",
-  "linked-external": "bg-amber-500",
+  diverged: "bg-warning",
+  copy: "bg-success",
+  "linked-external": "bg-warning",
   "stray-link": "bg-border",
-  "bb-registry": "bg-amber-500",
+  "bb-registry": "bg-warning",
   "canonical-source": "bg-border",
 };
 
@@ -694,13 +694,13 @@ function SkillCanon({ data, selected }: { data: Overview; selected: string | nul
                   {row.hosts.map((item) => (
                     <TableCell key={item.hostId}>
                       {item.state === "same" ? (
-                        <span className="text-emerald-600" title={t("есть, содержимое как у всех")}>{t("есть")}</span>
+                        <span className="text-diff-added" title={t("есть, содержимое как у всех")}>{t("есть")}</span>
                       ) : item.state === "newer" ? (
-                        <span className="text-amber-600" title={t("на этой машине файлы новее")}>{t("новее")}</span>
+                        <span className="text-warning-text" title={t("на этой машине файлы новее")}>{t("новее")}</span>
                       ) : item.state === "stale" ? (
                         <span className="text-orange-800" title={t("есть, но файлы старше чем на другой машине")}>{t("устарел")}</span>
                       ) : item.state === "differs" ? (
-                        <span className="text-amber-600" title={t("есть, но содержимое отличается")}>{t("отличается")}</span>
+                        <span className="text-warning-text" title={t("есть, но содержимое отличается")}>{t("отличается")}</span>
                       ) : (
                         <span className="text-destructive" title={t("на этой машине нет")}>{t("нет")}</span>
                       )}
@@ -815,7 +815,7 @@ function SkillBackups({ hostId, lastScanAt }: { hostId: string | null; lastScanA
                   <TableCell className="font-medium">
                     {row.name}
                     {row.unique ? (
-                      <Badge variant="outline" className="ml-2 py-0 font-normal text-amber-600">{t("уникальная")}</Badge>
+                      <Badge variant="outline" className="ml-2 py-0 font-normal text-warning-text">{t("уникальная")}</Badge>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{backupWhen(row.at)}</TableCell>
@@ -1045,7 +1045,7 @@ function DeviceList({
                 </span>
                 <span
                   className={`mt-0.5 block pl-6 text-xs ${
-                    linked.length === 0 ? "text-amber-600" : "text-muted-foreground"
+                    linked.length === 0 ? "text-warning-text" : "text-muted-foreground"
                   }`}
                 >
                   {coverage}
@@ -1933,7 +1933,7 @@ function AgentRows({
           {agent.bridged ? null : (
             <Badge
               variant="outline"
-              className="border-amber-500/40 text-amber-500"
+              className="border-warning/40 text-warning-text"
             >
               {t("не проброшен")}
             </Badge>
@@ -2504,7 +2504,7 @@ function PluginsTabContent({
                           variant="secondary"
                           className={cn(
                             "font-normal text-xs",
-                            hp.enabled && "bg-emerald-500/15 text-emerald-500 border-transparent",
+                            hp.enabled && "bg-success/15 text-diff-added border-transparent",
                           )}
                           title={hp.installPath ?? undefined}
                         >
@@ -2587,7 +2587,7 @@ function OpenCodeTabContent({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-medium flex items-center gap-2">
-              <Icon name="AiBrain01" className="size-4 text-emerald-500" />
+              <Icon name="AiBrain01" className="size-4 text-diff-added" />
               {t("Любимая модель")}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -2596,7 +2596,7 @@ function OpenCodeTabContent({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">{t("Сейчас в BB:")}</span>
-            <Badge variant="secondary" className="font-mono text-xs bg-emerald-500/15 text-emerald-500 border-transparent">
+            <Badge variant="secondary" className="font-mono text-xs bg-success/15 text-diff-added border-transparent">
               {opencode.bbPreselectedModel ?? t("не задана")}
             </Badge>
           </div>
@@ -2636,7 +2636,7 @@ function OpenCodeTabContent({
                       <TableCell className="px-3 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {isPreselected ? (
-                            <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-transparent text-xs font-normal">
+                            <Badge variant="secondary" className="bg-success/15 text-diff-added border-transparent text-xs font-normal">
                               {t("⭐ Предустановлена в BB")}
                             </Badge>
                           ) : null}
@@ -2657,7 +2657,7 @@ function OpenCodeTabContent({
                       </TableCell>
                       <TableCell className="px-3 py-2.5 text-right">
                         {isPreselected ? (
-                          <span className="text-xs text-emerald-500 font-medium mr-2">{t("Активна")}</span>
+                          <span className="text-xs text-diff-added font-medium mr-2">{t("Активна")}</span>
                         ) : (
                           <Button
                             size="sm"
@@ -2687,7 +2687,7 @@ function OpenCodeTabContent({
               <span className="text-sm font-medium">{h.hostName}</span>
               <Badge
                 variant={h.installed ? "secondary" : "outline"}
-                className={cn("font-normal", h.installed && "bg-emerald-500/15 text-emerald-500 border-transparent")}
+                className={cn("font-normal", h.installed && "bg-success/15 text-diff-added border-transparent")}
               >
                 {h.installed ? t("OpenCode готов") : t("Не установлен")}
               </Badge>
@@ -2725,9 +2725,9 @@ function OpenCodeTabContent({
 
       {/* Предупреждение о расхождениях */}
       {opencode.drift.length > 0 ? (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5 text-xs">
+        <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
-            <span className="font-medium text-amber-500">
+            <span className="font-medium text-warning-text">
               {t("Обнаружены расхождения")} ({opencode.drift.length}):
             </span>
             <Button
@@ -2795,11 +2795,11 @@ function OpenCodeTabContent({
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium">{p.name}</span>
                         {p.isCanonical ? (
-                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-500 text-[10px] px-1 py-0 font-normal">
+                          <Badge variant="outline" className="border-success/40 text-diff-added text-[10px] px-1 py-0 font-normal">
                             {t("канон")}
                           </Badge>
                         ) : p.isStale ? (
-                          <Badge variant="outline" className="border-amber-500/40 text-amber-500 text-[10px] px-1 py-0 font-normal">
+                          <Badge variant="outline" className="border-warning/40 text-warning-text text-[10px] px-1 py-0 font-normal">
                             {t("устаревший")}
                           </Badge>
                         ) : null}
@@ -2849,9 +2849,9 @@ function OpenCodeTabContent({
                       <TableCell key={h.hostId} className="px-3 py-2.5">
                         <Badge
                           variant="secondary"
-                          className="bg-emerald-500/15 text-emerald-500 border-transparent font-normal inline-flex items-center gap-1.5"
+                          className="bg-success/15 text-diff-added border-transparent font-normal inline-flex items-center gap-1.5"
                         >
-                          <span className="size-1.5 rounded-full bg-emerald-500" />
+                          <span className="size-1.5 rounded-full bg-success" />
                           {t("Включён")}
                         </Badge>
                       </TableCell>
@@ -3149,7 +3149,7 @@ function CatalogPage() {
   if (different > 0) {
     statusItems.push({
       key: "different",
-      node: <span className="text-amber-500">{t("отличается")} {different}</span>,
+      node: <span className="text-warning-text">{t("отличается")} {different}</span>,
     });
   }
   if (pending.length > 0) {
@@ -3343,7 +3343,7 @@ function CatalogPage() {
                   <TabsTrigger value="opencode">
                     OpenCode
                     {(data.opencode?.drift?.length ?? 0) === 0 ? null : (
-                      <span className="ml-1.5 text-xs font-medium text-amber-500">
+                      <span className="ml-1.5 text-xs font-medium text-warning-text">
                         · {data.opencode.drift.length}
                       </span>
                     )}
