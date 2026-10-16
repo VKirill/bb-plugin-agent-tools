@@ -2,9 +2,9 @@
 title: Agent Tools deployment
 type: deployment
 created: 2026-09-27
-updated: 2026-09-28
+updated: 2026-10-16
 status: active
-confidence: high
+confidence: medium
 tags: [deployment, build, install]
 sources:
   - package.json

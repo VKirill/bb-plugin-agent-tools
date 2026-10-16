@@ -2,7 +2,7 @@
 title: MCP server catalogue
 type: component
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-16
 status: active
 confidence: medium
 tags: [mcp, catalogue, sync]
@@ -16,6 +16,8 @@ sources:
   - metamcp.ts
   - probe.ts
   - app.tsx
+  - i18n.ts
+  - i18n.en.ts
 ---
 # MCP server catalogue
 The MCP feature scans managed CLI configurations across connected BB machines, compares them with a stored desired-state catalogue, and offers explicit add, update, enable, and removal actions (`server.ts:558-612`, `server.ts:673-746`).
@@ -103,12 +105,12 @@ String arrays are accepted only when every member is a string. Header/env record
 
 ### Catalog screen
 
-- `DeviceList` starts in the all-machines selection when `selected` is null; clicking a machine calls `onSelect(hostId)`. Rows calculate drift count and installed non-gateway CLI count, display scan age for connected hosts or “not connected”, and show an empty-state prompt when there are no hosts. Each fetched hub namespace has one shared block whose coverage lists machines with a matching namespace; per-machine MetaMCP blocks show only children whose namespace is not one of those fetched from the hub (`app.tsx:1024-1071`, `app.tsx:1073-1112`). This component only changes selection; it does not initiate scans or handle RPC errors (`app.tsx:933-1112`).
-- `CatalogTable` resolves the selected machine, then uses host columns for the all-machines view or that machine's manageable CLI columns for a single-machine view. An empty catalogue shows an adopt-pending message when pending entries exist; otherwise it directs the user to configure an MCP server and rescan (`app.tsx:1113-1152`).
-- For a non-empty catalogue it renders state and enabled legends, a row per entry, the entry description and local-only scope marker, and one state cell per host/agent column (`app.tsx:1154-1229`). The remove action calls `onRemove` immediately and keeps machine configs; purge first sets a per-entry confirmation state, then calls `onPurge` on the second click. Both controls are disabled while `busy` (`app.tsx:1126-1127`, `app.tsx:1231-1268`).
-- `CatalogTable` does not perform RPCs or render an error result itself. The parent handles thrown RPC errors through `act`/`report`, updates overview data on success, and shows purge's returned removed/failed counts and error list in a notice. Purge targets the current selected host or all hosts, includes gateway configs, and disables dry-run (`app.tsx:127-144`, `app.tsx:3162-3175`, `app.tsx:3437-3445`).
-- `hostState` ignores agents that are not manageable, installed, configured, or targeted by the entry. It returns `n/a` when none qualify, `missing` when none contain the entry, `partial` when only some contain it, `different` when a non-local-only entry differs, and `present` otherwise (`app.tsx:537-566`).
-- An empty catalogue explains either that pending servers can be adopted or that an MCP server must first be configured in a CLI and scanned (`app.tsx:1141-1150`).
+- `DeviceList` starts in the all-machines selection when `selected` is null; clicking a machine calls `onSelect(hostId)`. Rows calculate drift count and installed non-gateway CLI count, display scan age for connected hosts or “not connected”, and show an empty-state prompt when there are no hosts. Each fetched hub namespace has one shared block whose coverage lists machines with a matching namespace; per-machine MetaMCP blocks show only children whose namespace is not one of those fetched from the hub (`app.tsx:1026-1073`, `app.tsx:1075-1114`). This component only changes selection; it does not initiate scans or handle RPC errors (`app.tsx:935-1114`).
+- `CatalogTable` resolves the selected machine, then uses host columns for the all-machines view or that machine's manageable CLI columns for a single-machine view. An empty catalogue shows an adopt-pending message when pending entries exist; otherwise it directs the user to configure an MCP server and rescan (`app.tsx:1115-1154`).
+- For a non-empty catalogue it renders state and enabled legends, a row per entry, the entry description and local-only scope marker, and one state cell per host/agent column (`app.tsx:1156-1231`). The remove action calls `onRemove` immediately and keeps machine configs; purge first sets a per-entry confirmation state, then calls `onPurge` on the second click. Both controls are disabled while `busy` (`app.tsx:1128-1129`, `app.tsx:1233-1270`).
+- `CatalogTable` does not perform RPCs or render an error result itself. The parent handles thrown RPC errors through `act`/`report`, updates overview data on success, and shows purge's returned removed/failed counts and error list in a notice. Purge targets the current selected host or all hosts, includes gateway configs, and disables dry-run (`app.tsx:127-144`, `app.tsx:3164-3177`, `app.tsx:3439-3447`).
+- `hostState` ignores agents that are not manageable, installed, configured, or targeted by the entry. It returns `n/a` when none qualify, `missing` when none contain the entry, `partial` when only some contain it, `different` when a non-local-only entry differs, and `present` otherwise (`app.tsx:538-569`). The state and enabled-state accessible labels, along with pending-server filter labels, are resolved from `t()` during render, so they follow the language loaded with the overview (`app.tsx:113-118`, `app.tsx:324-347`, `app.tsx:376-404`, `app.tsx:1295-1320`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
+- An empty catalogue explains either that pending servers can be adopted or that an MCP server must first be configured in a CLI and scanned (`app.tsx:1143-1152`).
 
 ## Modes, variants, and states
 
@@ -120,7 +122,7 @@ String arrays are accepted only when every member is a string. Header/env record
 | Drift: missing / different | Desired global entry is absent / differs from normalized config | `plan` reports upsert operations (`server.ts:682-703`, `server.ts:1120-1154`). |
 | Dry run | `dryRun: true` | Plan and per-host results are returned without config writes (`server.ts:1606-1651`, `host.ts:1173-1177`). |
 | Disabled | Agent format carries a disabled flag | `enable` or `disable` edits supported dialects; unsupported agents are skipped (`agents.ts:235-246`, `server.ts:1702-1760`). |
-| MetaMCP gateway | Gateway config exists and is writable | Gateway children are displayed separately; JSON import upserts into its local config (`server.ts:1793-1842`, `app.tsx:1278-1310`). |
+| MetaMCP gateway | Gateway config exists and is writable | Gateway children are displayed separately; JSON import upserts into its local config (`server.ts:1793-1842`, `app.tsx:1280-1312`). |
 | MetaMCP namespace fetch | Gateway URL and API key are configured; namespaces come from the comma-separated setting or default to `secondary` | Each namespace is fetched from its encoded OpenAPI URL with `X-API-Key`; tool paths are grouped by the server prefix before `__`, counted, and sorted (`server.ts:635-649`, `metamcp.ts:18-46`). |
 
 ## Failures
