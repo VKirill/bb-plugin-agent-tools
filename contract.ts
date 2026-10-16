@@ -4,13 +4,17 @@ import { z } from "zod";
 
 export const transportSchema = z.enum(["stdio", "http", "sse"]);
 
+/** Serialized tool schemas and other structured environment values can exceed 8K.
+ * Keep the value bounded without truncating executable configuration data. */
+export const MCP_ENV_VALUE_MAX_LENGTH = 128 * 1024;
+
 /** One MCP server, normalized away from any single CLI's dialect. */
 export const mcpServerSchema = z.object({
   name: z.string().min(1).max(120),
   transport: transportSchema,
   command: z.string().max(4096).optional(),
   args: z.array(z.string().max(4096)).max(64).optional(),
-  env: z.record(z.string().max(200), z.string().max(8192)).optional(),
+  env: z.record(z.string().max(200), z.string().max(MCP_ENV_VALUE_MAX_LENGTH)).optional(),
   url: z.string().max(4096).optional(),
   headers: z.record(z.string().max(200), z.string().max(8192)).optional(),
   disabled: z.boolean().optional(),

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.5
+
+- MCP scans accept structured environment values up to 131,072 characters, preserving them without truncation. BB’s Cursor bridge stores serialized tool schemas in `BB_ACP_DYNAMIC_TOOLS`; the old 8192-character limit could reject an entire machine scan. HTTP header limits stay unchanged.
+- Added regression coverage for full host scans, lossless config round trips, and limit boundaries. Found during the follow-up to @Jehu’s English localization PR #1 — thanks for helping improve Agent Tools!
+
+
 ## 0.2.4
 
 - Keep Agent Tools’ own English/Russian dictionary in control when a global UI translator is active, including dialogs. Discovered while verifying the English localization from @Jehu’s PR #1; thanks again for the contribution!

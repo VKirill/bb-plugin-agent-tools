@@ -15,7 +15,7 @@ sources:
   - package-lock.json
 ---
 # Agent Tools deployment
-The project installs as a BB path plugin; build it with the BB plugin CLI, then reload `agent-tools` in the live BB runtime (`AGENTS.md:10`, `package.json:74-78`).
+For local development, build the project with the BB plugin CLI and load it as a path plugin. The hub uses the Community marketplace installation described below (`AGENTS.md:10`, `package.json:74-78`).
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ The project installs as a BB path plugin; build it with the BB plugin CLI, then 
 
 ## Managed hub installation
 
-The canonical development checkout is separate from the hub’s managed Git installation. Confirm its source with `bb plugin list --json`: `git:https://github.com/VKirill/bb-plugin-agent-tools@ref:main`. After typecheck, tests, and `bb plugin build .`, commit and push `origin main`, then run `bb plugin update agent-tools --yes` and `bb plugin reload agent-tools`. Confirm the version and status, then check the affected UI and CLI scenarios. Do not replace this source with a local path installation or use the path-plugin rsync helper.
+The canonical development checkout is separate from the hub’s managed Git installation. Confirm its source with `bb plugin list --json`: `git:https://github.com/VKirill/bb-plugin-agent-tools.git@semver:^0.2.0`. After typecheck, tests, and `bb plugin build .`, commit and push `origin main`, publish a new `vX.Y.Z` tag and GitHub Release, then run `bb plugin update agent-tools --yes` and `bb plugin reload agent-tools`. Confirm the version and status, then check the affected UI and CLI scenarios. Do not replace this source with a local path installation or use the path-plugin rsync helper.
 
 A failed managed activation rolls back automatically. For a functional rollback, restore the previous release’s affected files in a new fix commit on main, build and publish it, then update the same managed source. Keep configuration and skill data intact; this release adds no data migration.
 
