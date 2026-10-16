@@ -2,7 +2,7 @@
 title: Agent skill canon and rollout
 type: component
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-16
 status: active
 confidence: medium
 tags: [skills, canon, fanout]
@@ -12,6 +12,7 @@ sources:
   - server.ts
   - contract.ts
   - i18n.ts
+  - i18n.en.ts
   - app.tsx
   - skills-sync.ts
   - skills-server.ts
@@ -118,12 +119,12 @@ The planner does not write files; oversized BB copies are returned in `blocked`.
 
 ### Canon screen
 
-`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:588-623`).
+`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:589-624`). Skill state labels, hints, legend entries, and out-of-canon filters call `t()` during render, after the overview response sets the selected language (`app.tsx:113-118`, `app.tsx:430-450`, `app.tsx:462-489`, `app.tsx:496-506`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
 
-1. It derives counts for all rows, gaps, divergent states, plugin-provided entries and oversized rows (`app.tsx:591-601`).
-2. It filters by the selected category and trimmed, case-insensitive skill-name query (`app.tsx:603-613`).
-3. With zero total rows it shows that the canon is empty or machines have not been scanned. With rows but no visible matches it chooses an empty message by filter (`app.tsx:615-623`, `app.tsx:652-661`).
-4. Otherwise it renders one host-state cell per row, plugin/size badges where relevant, and a homes cell. That cell shows the selected machine's homes or the intersection across all machines; an empty home intersection shows `только канон`, and non-empty home IDs are sorted and converted to paths (`app.tsx:663-721`).
+1. It derives counts for all rows, gaps, divergent states, plugin-provided entries and oversized rows (`app.tsx:590-602`).
+2. It filters by the selected category and trimmed, case-insensitive skill-name query (`app.tsx:604-614`).
+3. With zero total rows it shows that the canon is empty or machines have not been scanned. With rows but no visible matches it chooses an empty message by filter (`app.tsx:616-624`, `app.tsx:653-662`).
+4. Otherwise it renders one host-state cell per row, plugin/size badges where relevant, and a homes cell. That cell shows the selected machine's homes or the intersection across all machines; an empty home intersection displays the localized “canon only” label, and non-empty home IDs are sorted and converted to paths (`app.tsx:664-723`).
 
 | Filter | Includes rows when |
 |---|---|
@@ -131,13 +132,13 @@ The planner does not write files; oversized BB copies are returned in `blocked`.
 | `gaps` | At least one host reports `missing`. |
 | `differs` | At least one host is `differs`, `newer`, or `stale`. |
 | `plugin` | `fromPlugin` is true. |
-| `heavy` | `tooHeavy` is true (`app.tsx:588-613`). |
+| `heavy` | `tooHeavy` is true (`app.tsx:589-614`). |
 
-This component has no local error branch: it renders the supplied overview and empty-state messages; request errors belong to its parent (`app.tsx:588-623`).
+This component has no local error branch: it renders the supplied overview and empty-state messages; request errors belong to its parent (`app.tsx:589-624`).
 
-For each displayed row, the homes cell filters `row.hosts` to all entries when no host is selected or to entries whose `hostId` matches the selection. It maps those entries to home-id lists and intersects them; no selected-host rows produce an empty list. An empty home list displays `только канон`; otherwise sorted ids are rendered as paths (`app.tsx:713-721`).
+For each displayed row, the homes cell filters `row.hosts` to all entries when no host is selected or to entries whose `hostId` matches the selection. It maps those entries to home-id lists and intersects them; no selected-host rows produce an empty list. An empty home list displays the localized “canon only” label; otherwise sorted IDs are rendered as paths (`app.tsx:714-722`).
 
-The matrix renders each host state as present/same, newer, stale, differs, or missing, and marks plugin-provided canon names with a badge (`app.tsx:669-692`).
+The matrix renders each host state as present/same, newer, stale, differs, or missing, and marks plugin-provided canon names with a badge (`app.tsx:670-693`). Archive dates use the selected language's `en-GB` or `ru-RU` locale, and known Russian snapshot reasons pass through `t()` before display (`app.tsx:736-740`, `app.tsx:821-825`, `i18n.en.ts:4-63`).
 
 ### Host adoption and replacement
 

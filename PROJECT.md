@@ -2,7 +2,7 @@
 title: Agent Tools project facts
 type: overview
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-16
 status: active
 confidence: medium
 tags: [agents, architecture, operations]
@@ -17,6 +17,9 @@ sources:
   - skill-tree.ts
   - contract.ts
   - agents.ts
+  - app.tsx
+  - i18n.ts
+  - i18n.en.ts
 ---
 # Agent Tools project facts
 Facts for agents working on this plugin; deeper behavior and domain detail live in the linked documentation pages.
@@ -49,7 +52,7 @@ Facts for agents working on this plugin; deeper behavior and domain detail live 
 
 - Add a supported CLI only in `agents.ts`; dialect conversion belongs in `normalize.ts` (`agents.ts:1-4`, `AGENTS.md:12-19`).
 - Add a skill home in both `skills.ts` policy/path maps and `host.ts` locations (`skills.ts:103-133`, `host.ts:254-273`).
-- User-facing strings pass through `t`, `tp`, or `plural`; English entries live in `i18n.en.ts` (`AGENTS.md:55-57`, `i18n.ts:31-69`).
+- User-facing strings pass through `t`, `tp`, or `plural`; the UI sets its language from the overview before storing response data and computes state labels and filters during render. English entries live in `i18n.en.ts` (`AGENTS.md:55-57`, `i18n.ts:31-69`, `app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:430-500`, `i18n.en.ts:4-63`).
 - Host machine-specific paths are derived at runtime from `os.homedir()`; host IDs and machine statuses come from BB's host listing (`host.ts:69-73`, `server.ts:569-578`).
 
 ## Common gotchas

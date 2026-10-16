@@ -2,9 +2,9 @@
 title: OpenCode provider and model management
 type: component
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-16
 status: active
-confidence: high
+confidence: medium
 tags: [opencode, providers, models]
 sources:
   - opencode.ts
@@ -26,7 +26,7 @@ Each host scan reports whether OpenCode is installed, the config path and writea
 1. The host searches `~/.config/opencode/opencode.json`, then `opencode.jsonc`; comments mark the found file read-only (`host.ts:790-851`).
 2. `parseOpenCodeText` normalizes providers, models, plugin names, API-key presence, and enabled providers (`opencode.ts:43-102`).
 3. The server caches the scan by host, builds provider rows, selects a canonical source host, and compares model/provider state (`server.ts:576-585`, `server.ts:954-989`).
-4. The UI displays host models and provider matrix, and offers sync, stale-provider cleanup, provider removal, and default-model selection (`app.tsx:2954-3012`, `app.tsx:3421-3431`).
+4. The UI displays host models and provider matrix, and offers sync, stale-provider cleanup, provider removal, and default-model selection (`app.tsx:2956-3014`, `app.tsx:3423-3433`).
 5. Sync copies selected provider definitions, models, and enabled providers from the source to connected targets; each group can be disabled in RPC input (`server.ts:1712-1798`).
 6. Writes apply operations to JSON, make a backup, atomically replace the file, and rescan (`host.ts:854-914`, `host.ts:435-463`).
 7. Default model selection can update connected OpenCode configs and BB's `project_execution_defaults` setting (`server.ts:738-775`, `server.ts:2018-2055`).

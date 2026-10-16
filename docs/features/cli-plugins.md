@@ -2,7 +2,7 @@
 title: CLI plugin inventory
 type: component
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-16
 status: active
 confidence: medium
 tags: [cli-plugins, inventory]
@@ -19,14 +19,14 @@ The plugin inventory scans supported CLI plugin registries on each machine and c
 
 ## Purpose
 
-Each plugin record contains ID, agent name, display name, marketplace, version, scope, enabled state, and install path (`contract.ts:255-292`). The UI groups the inventory by agent and supports filters for all plugins, Claude Code, OpenCode, and Codex (`app.tsx:2333-2448`).
+Each plugin record contains ID, agent name, display name, marketplace, version, scope, enabled state, and install path (`contract.ts:255-292`). The UI groups the inventory by agent and supports filters for all plugins, Claude Code, OpenCode, and Codex (`app.tsx:2335-2450`).
 
 ## How it works
 
 1. The server's regular scan calls host method `plugins_scan` for each connected host and stores its result (`server.ts:601-610`).
 2. The host parses supported local registries and returns plugin records (`host.ts:700-780`).
 3. The server aggregates records using agent and plugin IDs, then builds an installed/enabled/version/path cell for every BB machine (`server.ts:913-965`).
-4. The UI displays the cross-machine table; the `bb tools plugins` command groups the same records by agent (`app.tsx:2333-2448`, `server.ts:2825-2850`).
+4. The UI displays the cross-machine table; the `bb tools plugins` command groups the same records by agent (`app.tsx:2335-2450`, `server.ts:2825-2850`).
 
 ### Agent adapter registry (`AGENTS`)
 
@@ -55,7 +55,7 @@ Failures are represented at config-load time where possible: missing/unreadable 
 | Not installed | No matching plugin record exists on that host (`server.ts:935-945`). |
 | Enabled | Source registry reports `enabled: true` (`contract.ts:255-269`). |
 | Unknown / not scanned | The host has no plugin scan snapshot; the aggregate cell is not installed (`server.ts:935-945`). |
-| Filter | UI shows all, Claude Code, OpenCode, or Codex records (`app.tsx:2375-2418`). |
+| Filter | UI shows all, Claude Code, OpenCode, or Codex records (`app.tsx:2377-2420`). |
 
 ## Failures
 
@@ -77,7 +77,7 @@ See [API and commands](../api.md). The host RPC method is `plugins_scan`; the us
 ## Gotchas
 
 - A host can be connected and still appear empty if its plugin scan has not succeeded (`server.ts:601-610`, `server.ts:935-945`).
-- The visible CLI filter set is narrower than the MCP agent adapter list (`app.tsx:2375-2418`, `agents.ts:56-219`).
+- The visible CLI filter set is narrower than the MCP agent adapter list (`app.tsx:2377-2420`, `agents.ts:56-219`).
 
 See [API](../api.md) and [architecture](../architecture.md).
 
