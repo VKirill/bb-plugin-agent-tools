@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-agent-tools",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "One inventory of MCP servers and agent skills across every BB machine: what is connected where, what is missing, a single skills canon with fan-out, sync and a version archive.",
   "license": "MIT",
   "author": "Kirill Vechkasov",
@@ -24,8 +24,8 @@
     "bbPluginSdk": ">=0.4.87"
   },
   "bb": {
-    "name": "Инструменты агентов",
-    "description": "MCP-серверы и навыки агентов на всех машинах BB: что где подключено, чего не хватает, единый канон скиллов и синхронизация одним нажатием.",
+    "name": "Agent Tools",
+    "description": "Compare MCP servers and agent skills across BB machines, then sync a shared catalogue and skills canon.",
     "branding": {
       "icon": "Toolbox"
     },

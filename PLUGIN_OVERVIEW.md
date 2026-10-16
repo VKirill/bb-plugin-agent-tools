@@ -1,31 +1,33 @@
-## Инструменты агентов для BB — серверы и навыки на всех машинах
+## Agent Tools for BB — servers and skills across every machine
 
-На ноутбуке пусто, на сервере десяток серверов, на второй машине — половина из
-них, а навыки размазаны по пяти папкам? Плагин собирает MCP-конфиги всех
-CLI-агентов и папки навыков на каждой машине BB в одну картину и приводит их к
-общему списку и одному канону.
+Nothing on the laptop, a dozen servers on the workstation, half of them on a
+second machine, and skills scattered across five folders? The plugin collects
+MCP configurations from every CLI agent and skill folders on every BB machine
+into one view, then brings them into line with a shared catalogue and canon.
 
-## Что внутри
+## Included
 
-- Страница «Инструменты» с устройствами слева и матрицей «сервер × машина»
-  справа; бейдж в боковой панели считает новые серверы и расхождения.
-- Приём новых серверов в каталог одним нажатием: общим стандартом или локально.
-- Синхронизация выбранной машины или всех сразу; автосинхронизация раз в час
-  добавляет недостающее и ничего не удаляет.
-- Чтение шлюза MetaMCP по API-ключу: видно, какие серверы спрятаны за ним.
-- Вкладка «Скиллы»: канон `~/.agents/skills`, срезы «копии / новые / расходятся
-  / лишние ссылки / дубли BB» и правила, которые применяются одной кнопкой;
-  канон синхронизируется через свой git-remote.
-- CLI `bb tools` и навык для агентов.
+- The **Tools** page with machines on the left and a **server × machine**
+  matrix on the right; the sidebar badge counts new servers and drift.
+- One-click adoption of new servers into the catalogue, either as shared
+  standard or locally.
+- Synchronization for the selected machine or all machines; optional hourly automatic
+  sync adds missing entries and never removes anything.
+- MetaMCP gateway reads through its API key, showing which servers are behind
+  it.
+- The **Skills** tab: the `~/.agents/skills` canon; **copies / new / divergent
+  / unnecessary links / BB duplicates** views; and one-click rules; the canon
+  synchronizes through its own git remote.
+- The `bb tools` CLI and its agent skill.
 
-Поддержаны Claude Code, Codex, OpenCode, Cursor, Antigravity, Gemini, Qwen,
-Kimi, Grok, Crush и локальный шлюз MetaMCP. Прочие найденные CLI показываются
-как есть и помечаются, если BB не умеет на них работать.
+Claude Code, Codex, OpenCode, Cursor, Antigravity, Gemini, Qwen, Kimi, Grok,
+Crush, and the local MetaMCP gateway are supported. Other detected CLIs are
+shown as-is and marked when BB cannot operate on them.
 
-## Границы
+## Boundaries
 
-Перед записью делается резервная копия конфига, запись атомарная, файлы с
-комментариями не переписываются, а конфиги с неподтверждённым путём создаются
-только вручную. Серверы с абсолютными путями, адресами на loopback или
-ссылками на локальные секреты помечаются локальными и не раскатываются.
-Состав MetaMCP только читается — менять его нужно в самом MetaMCP.
+Before writing, the plugin creates a configuration backup; writes are atomic;
+JSON files with comments are not rewritten; and configurations with an unconfirmed
+path can be created only manually. Servers with absolute paths, loopback
+addresses, or references to local secrets are marked local and are not rolled
+out. MetaMCP contents are read-only and must be changed in MetaMCP itself.

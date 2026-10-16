@@ -11,7 +11,7 @@ export function isLang(value: unknown): value is Lang {
   return value === "ru" || value === "en";
 }
 
-let current: Lang = "ru";
+let current: Lang = "en";
 let dictionary: Record<string, string> = {};
 
 /** Подключить словарь переводов. Вызывается один раз при загрузке. */
@@ -48,6 +48,25 @@ export function tp(ru: string, ...values: (string | number)[]): string {
     const value = values[Number(index)];
     return value === undefined ? match : String(value);
   });
+}
+
+/** BB's document locale controls the page; CLI language remains a stored choice. */
+export function languageFromLocale(locale: string): Lang {
+  return locale.toLowerCase().startsWith("ru") ? "ru" : "en";
+}
+
+/** Translate host diagnostics at display time, retaining opaque parser/path details. */
+export function translateDiagnostic(message: string): string {
+  const prefixes = [
+    "не удалось разобрать: ",
+    "внутри приложения: ",
+    "относительный путь: ",
+    "абсолютный путь: ",
+    "аргумент с локальным путём: ",
+    "адрес на loopback: ",
+  ];
+  const prefix = prefixes.find((candidate) => message.startsWith(candidate));
+  return prefix === undefined ? t(message) : tp(`${prefix}{0}`, message.slice(prefix.length));
 }
 
 /**

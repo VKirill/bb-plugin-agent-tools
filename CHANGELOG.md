@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.3
+
+- English plugin metadata, marketplace overview, bundled skill, and default CLI language. Thanks to @Jehu for PR #1 and the English translation work.
+- The page follows BB’s interface language (`ru*` selects Russian); Russian skill triggers and translated skill action labels are retained.
+- Configuration warnings and machine-local reasons are translated at display time without losing diagnostic details. Existing theme styling is preserved.
+
+
 ## 0.2.2
 
 - Английский интерфейс переведён целиком: легенда состояний скиллов, фильтры «Копии / Новые / Дубли BB», срезы новых серверов, подписи точек матрицы, дата и причина снимка в архиве. Раньше эти подписи вычислялись при загрузке модуля, до выбора языка, и оставались русскими.

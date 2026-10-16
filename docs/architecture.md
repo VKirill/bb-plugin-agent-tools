@@ -78,7 +78,7 @@ The manifest points BB to `app.tsx`, `server.ts`, and `host.ts` (`package.json:2
 - `skills-server.ts` scans, backs up, copies, and extracts filtered skill trees in the BB server process's `dataDir/skills` (`skills-server.ts:58-64`, `skills-server.ts:66-100`, `skills-server.ts:102-145`); `skill-tree.ts` defines excluded junk and BB tree measurement (`skill-tree.ts:12-29`, `skill-tree.ts:32-70`).
 - `server.ts` owns cross-machine orchestration, state, CLI registration, and hourly sweep (`server.ts:479-525`, `server.ts:2055-2288`, `server.ts:2290-2373`).
 - `host.ts` owns machine-local scans, backups, and writes (`host.ts:151-241`, `host.ts:374-435`, `host.ts:783-818`, `host.ts:1118-1189`).
-- `app.tsx` renders the machine selector and MCP, skills, archive, plugins, and OpenCode tabs. It sets the language from the overview before the first data render and resolves translated labels during render (`app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:3268-3339`, `i18n.en.ts:4-63`).
+- `app.tsx` renders the machine selector and MCP, skills, archive, plugins, and OpenCode tabs. It sets the language from BB’s document locale before the first data render and resolves translated labels during render (`app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:3268-3339`, `i18n.en.ts:4-63`).
 
 ## Key flows
 
@@ -154,7 +154,7 @@ The rollout sequence scans, promotes candidates, synchronizes Git when configure
 
 **Errors.** Host RPC rejections are recorded on MCP scan snapshots, while writes return per-operation errors; skill bulk actions preserve failures in their response (`server.ts:558-567`, `host.ts:1118-1189`, `server.ts:2130-2160`).
 
-**Language.** UI and CLI strings pass through the shared language functions; the selected language is persisted in BB KV. The UI applies the language returned by `overview` before storing data, and computes state labels, hints, and filters during render so they use that selection (`i18n.ts:8-69`, `i18n.en.ts:4-63`, `server.ts:483-485`, `server.ts:2162-2167`, `app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:430-500`).
+**Language.** UI and CLI strings pass through the shared language functions; the CLI/server language is persisted in BB KV and defaults to English. The UI applies `document.documentElement.lang` (`ru*` → Russian, otherwise English) before storing data and observes locale changes, and computes state labels, hints, and filters during render so they use that selection (`i18n.ts:8-69`, `i18n.en.ts:4-63`, `server.ts:483-485`, `server.ts:2162-2167`, `app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:430-500`).
 
 See [API](api.md), [data model](data-model.md), and the [feature pages](features/mcp-catalog.md).
 

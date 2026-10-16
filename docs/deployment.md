@@ -61,6 +61,12 @@ The project installs as a BB path plugin; build it with the BB plugin CLI, then 
 
 5. Verify the live behavior changed by the build. Use `bb tools status`, `bb tools plan`, or `bb tools scan --json`, then inspect the catalogue page in the live BB runtime (`AGENTS.md:28-30`).
 
+## Managed hub installation
+
+The canonical development checkout is separate from the hub’s managed Git installation. Confirm its source with `bb plugin list --json`: `git:https://github.com/VKirill/bb-plugin-agent-tools@ref:main`. After typecheck, tests, and `bb plugin build .`, commit and push `origin main`, then run `bb plugin update agent-tools --yes` and `bb plugin reload agent-tools`. Confirm the version and status, then check the affected UI and CLI scenarios. Do not replace this source with a local path installation or use the path-plugin rsync helper.
+
+A failed managed activation rolls back automatically. For a functional rollback, restore the previous release’s affected files in a new fix commit on main, build and publish it, then update the same managed source. Keep configuration and skill data intact; this release adds no data migration.
+
 ## Configure
 
 Open `bb plugin config agent-tools`. Configure MetaMCP URL, secret API key, namespace list, optional skills Git remote, and the scheduled skills fan-out setting (`server.ts:473-515`). The catalog's hourly sync toggle stores `autoSync` in BB key-value storage and defaults to off when no value exists; scheduled skills fan-out uses the `skillsFanOutAuto` setting, which also defaults to off (`server.ts:493-500`, `server.ts:528-529`, `server.ts:2057-2064`). The scheduled sweep runs catalog sync and skills rollout in separate branches according to those values (`server.ts:2067-2087`).

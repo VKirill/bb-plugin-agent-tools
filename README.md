@@ -16,7 +16,7 @@ bb plugin build .
 bb plugin install .
 ```
 
-Open the **Agent Tools** page in the BB sidebar. The interface and CLI support Russian and English; choose the language on the page or with `bb tools lang ru|en`.
+Open the **Agent Tools** page in the BB sidebar. The interface and CLI support Russian and English; the page follows BB’s interface language, and the CLI language is set with `bb tools lang ru|en`.
 
 ## Documentation
 

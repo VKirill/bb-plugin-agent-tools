@@ -1,66 +1,70 @@
 ---
 name: agent-tools
-description: Инструменты агентов на всех машинах BB — MCP-серверы (что где подключено, приём в каталог, шлюзы MetaMCP, синхронизация) и навыки (единый канон ~/.agents/skills, копии, дубли, git-синк). Использовать при вопросах «какие MCP есть на машинах», «почему на этой машине нет сервера X», «раскатай MCP везде», «где лежат скиллы», «убери дубли скиллов». Не для настройки самих MCP-серверов и не для вызова их инструментов.
+description: Agent tooling across every BB machine — MCP servers (what is connected where, catalogue adoption, MetaMCP gateways, synchronization) and skills (a single ~/.agents/skills canon, copies, duplicates, git sync). Use for questions such as “which MCP servers exist on the machines?”, “why is server X absent on this machine?”, “roll out MCP everywhere”, “where are skills stored?”, or “remove duplicate skills”. Russian triggers: «какие MCP есть на машинах», «раскатай MCP везде», «где лежат скиллы», «убери дубли скиллов». Do not use to configure MCP servers themselves or invoke their tools.
 ---
 
-# Инструменты агентов
+# Agent Tools
 
-Плагин держит один список MCP-серверов (каталог) и один канон навыков, и
-приводит к ним машины BB. Он читает конфиги установленных CLI-агентов на каждой
-машине: Claude Code (`~/.claude.json`), Codex (`~/.codex/config.toml`),
-OpenCode, Cursor, Antigravity, Gemini, Qwen, Kimi, Grok, Crush, а также
-локальный шлюз MetaMCP (`~/.agents/metamcp.mcp.json`).
+The plugin maintains one MCP-server list (the catalogue) and one skill canon,
+then brings BB machines into line with them. It reads the installed CLI-agent
+configuration on every machine: Claude Code (`~/.claude.json`), Codex
+(`~/.codex/config.toml`), OpenCode, Cursor, Antigravity, Gemini, Qwen, Kimi,
+Grok, Crush, and the local MetaMCP gateway (`~/.agents/metamcp.mcp.json`).
 
-## Команды
+## Commands
 
 ```bash
-bb tools status            # машины, их CLI, расхождения, новые серверы
-bb tools scan              # пересканировать все машины прямо сейчас
-bb tools pending           # серверы, найденные на машинах, но не в каталоге
-bb tools adopt <имя>...    # принять их в каталог
-bb tools ignore <имя>...   # больше не предлагать
-bb tools plan              # что изменит синхронизация (ничего не пишет)
-bb tools sync --dry-run    # прогон без записи
-bb tools sync              # добавить недостающее на все машины
-bb tools sync --with-different   # ещё и переписать отличающиеся
-bb tools auto on|off       # автосинхронизация раз в час
-bb tools gateway-add <файл.json> --host <id>   # свой MCP-сервер за шлюз MetaMCP
-bb tools skills [--host <id>]                  # навыки вне канона
-bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]
-bb tools skills-sync [--host <id>]             # канон навыков в git-remote из настроек
+bb tools status            # machines, their CLIs, drift, new servers
+bb tools scan              # rescan all machines now
+bb tools pending           # servers found on machines but not in the catalogue
+bb tools adopt <name>...   # adopt them into the catalogue
+bb tools ignore <name>...  # stop suggesting them
+bb tools plan              # what synchronization would change (writes nothing)
+bb tools sync --dry-run    # run without writes
+bb tools sync              # add missing servers to every machine
+bb tools sync --with-different   # also overwrite differing servers
+bb tools auto on|off       # hourly automatic synchronization
+bb tools gateway-add <file.json> --host <id>   # add your MCP server behind the MetaMCP gateway
+bb tools skills [--host <id>]                  # skills outside the canon
+bb tools skills-adopt <folder> <name> --host <id> [--link|--delete|--take|--unlink]
+bb tools skills-sync [--host <id>]             # sync the skill canon to the git remote in settings
 ```
 
-Любая команда принимает `--json`, а `scan`, `plan` и `sync` — `--host <id>`,
-чтобы работать с одной машиной.
+Every command accepts `--json`; `scan`, `plan`, and `sync` also accept
+`--host <id>` to operate on one machine.
 
-## Правила MCP
+## MCP rules
 
-- Синхронизация по умолчанию только добавляет; ничего не удаляет.
-- Серверы с абсолютным путём к бинарю, адресом на `127.0.0.1` или ссылкой
-  `${SECRET}` помечаются как локальные и не раскатываются: на другой машине
-  такой конфиг всё равно не запустится.
-- Перед каждой записью плагин делает резервную копию конфига рядом с ним
-  (`*.bak-bb-mcp-<время>`, хранятся последние 5).
-- Файл с комментариями (например `opencode.jsonc`) плагин читает, но не
-  переписывает — об этом сказано в колонке «Конфиг».
-- Серверы за шлюзом MetaMCP показываются только на чтение: их состав меняют в
-  самом MetaMCP или командой `gateway-add`.
+- Synchronization only adds entries by default; it never removes anything.
+- Servers with an absolute binary path, a `127.0.0.1` address, or a
+  `${SECRET}` reference are marked local and are not rolled out: that
+  configuration would not run on another machine anyway.
+- Before every write, the plugin creates a backup next to the configuration
+  (`*.bak-bb-mcp-<time>`; it retains the latest five).
+- The plugin reads files with comments (such as `opencode.jsonc`) but does not
+  rewrite them; the Config column says when this applies.
+- Servers behind a MetaMCP gateway are read-only: change their contents in
+  MetaMCP itself or with `gateway-add`.
 
-## Правила навыков
+## Skill rules
 
-- Канон — `~/.agents/skills`: его читают Codex, Cursor и OpenCode сами.
-- Сессии BB читают скиллы с сервера (`experimental_dataDir/skills`). Раскатка
-  кладёт туда реальные папки. Копии на Mini/MacBook этот корень не заменяют.
-- `~/.claude/skills` — второй живой дом: Claude Code читает только его, поэтому
-  там лежат симлинки в канон. Та же логика у `~/.bb/skills` и `~/.qwen/skills`.
-- В папках, которые читают канон сами, копия просто удаляется — симлинк там
-  лишний. В `~/.gemini/config/skills` не держим ничего: и копии, и ссылки
-  убираются.
-- Реальная копия скилла в двух домах даёт дубль в списке (проверено на Codex:
-  одно имя из двух корней показывается дважды); симлинк дубля не создаёт.
-- Расходящиеся копии решаются по дате файлов всей папки скилла; проигравший
-  уходит в `~/.agents/skills-backups`. Равные даты — ручное решение.
-- Ссылка в `~/.bb/skills` помечается «дубль реестра BB»: BB подставляет такой
-  навык в свои сессии сам, поэтому внутри BB он виден дважды. Убирать её или
-  нет — зависит от того, запускается ли этот CLI вне BB; автоматически это не
-  делается.
+- The canon is `~/.agents/skills`; Codex, Cursor, and OpenCode read it
+  directly.
+- BB sessions read skills from the server (`experimental_dataDir/skills`).
+  Fan-out puts real directories there. Copies on a Mini or MacBook do not
+  replace that root.
+- `~/.claude/skills` is a second live home: Claude Code reads only it, so it
+  contains symlinks to the canon. Qwen also uses symlinks in `~/.qwen/skills`; BB receives real mirror
+  directories in `~/.bb/skills` without rewriting its own registry.
+- In folders that read the canon directly, a copy is simply removed because a
+  symlink is unnecessary. `~/.gemini/config/skills` remains empty: both copies
+  and links are removed.
+- A real skill copy in two homes creates a duplicate in the list (verified in
+  Codex: one name from two roots appears twice); a symlink does not.
+- Differing copies are resolved by the modification dates of all files in the
+  skill folder; the losing copy goes to `~/.agents/skills-backups`. Equal dates
+  require a manual decision.
+- A link in `~/.bb/skills` is marked “BB registry duplicate”: BB injects that
+  skill into its own sessions, so it appears twice within BB. Whether to remove
+  it depends on whether that CLI is run outside BB; the plugin does not decide
+  automatically.

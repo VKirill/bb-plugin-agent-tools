@@ -30,7 +30,7 @@ import {
   type SkillRow as SkillRowT,
 } from "./skills";
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
-import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, type Lang } from "./i18n";
+import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, languageFromLocale, translateDiagnostic } from "./i18n";
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
@@ -112,15 +112,24 @@ function useOverview() {
   }, [setError]);
   const refetch = useCallback(() => {
     rpc.call("overview", null).then((result) => {
-      // Язык приходит вместе с данными: t() в дочерних компонентах читает его
-      // из модуля, поэтому ставим до первой отрисовки.
-      setLang(result.lang);
+      // Apply the BB document locale before rendering child labels.
+      setLang(languageFromLocale(document.documentElement.lang));
       setData(result);
       // Ошибку последнего действия не стираем: после раскатки сервер делает
       // scan + publish → mcp-changed → refetch, и текст пропадал за долю секунды.
     }, report);
   }, [rpc, report]);
   useEffect(refetch, [refetch]);
+  useEffect(() => {
+    const updateLanguage = () => {
+      setLang(languageFromLocale(document.documentElement.lang));
+      setDataState((previous) => previous === null ? null : { ...previous });
+    };
+    updateLanguage();
+    const observer = new MutationObserver(updateLanguage);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
+    return () => observer.disconnect();
+  }, []);
   useRealtime("mcp-changed", refetch);
 
   /** Любое действие возвращает свежий обзор — состояние не устаревает. */
@@ -130,7 +139,7 @@ function useOverview() {
       setError(null);
       try {
         const next = await run();
-        setLang(next.lang);
+        setLang(languageFromLocale(document.documentElement.lang));
         setData(next);
       } catch (cause) {
         report(cause);
@@ -209,10 +218,10 @@ function describe(server: {
   return server.url ?? "";
 }
 
-/** Одна строка с полным описанием предложенного сервера — уходит в title, не в текст. */
+/** Full proposed-server description; used in the title rather than visible text. */
 function pendingTitle(item: Pending): string {
   const parts = [item.hostName, item.kind, describe(item.spec)];
-  if (item.localOnly) parts.push(item.reason);
+  if (item.localOnly) parts.push(translateDiagnostic(item.reason));
   return parts.filter((part) => part.length > 0).join(" · ");
 }
 
@@ -1923,7 +1932,7 @@ function AgentRows({
           <div className="mt-0.5 text-xs text-muted-foreground">
             {agent.configExists ? "" : t("нет файла")}
             {agent.configExists || agent.warning === null ? "" : " · "}
-            {agent.warning ?? ""}
+            {agent.warning === null ? "" : translateDiagnostic(agent.warning)}
           </div>
         )}
       </TableCell>
@@ -3285,7 +3294,7 @@ function CatalogPage() {
                 setToolTab(value as "mcp" | "skills" | "backups" | "plugins" | "opencode")
               }
             >
-              {/* Шапка: заголовок слева, язык и обновление всегда справа — не делят строку с кнопками вкладки. */}
+              {/* Keep the title and refresh action above the tabs. */}
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
                 <div className="min-w-0">
                   <h1 className="truncate text-xl font-medium">
@@ -3297,23 +3306,6 @@ function CatalogPage() {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-                  <div className="flex overflow-hidden rounded-md border" role="group" aria-label={t("Язык интерфейса")}>
-                    {(["ru", "en"] as Lang[]).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        disabled={busy || data.lang === option}
-                        className={`px-2 py-1 text-xs ${
-                          data.lang === option
-                            ? "bg-muted font-medium text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        onClick={() => act(() => rpc.call("set_language", { lang: option }))}
-                      >
-                        {option === "ru" ? "RU" : "EN"}
-                      </button>
-                    ))}
-                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -3646,7 +3638,7 @@ function CatalogPage() {
                                       disabled={busy}
                                       onClick={() => act(() => rpc.call("skill_adopt", { hostId: row.hostId, locationId: row.locationId, name: row.name, mode: action.mode as SkillActionMode }))}
                                     >
-                                      {action.label}
+                                      {t(action.label)}
                                     </Button>
                                   </span>
                                 );

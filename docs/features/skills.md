@@ -119,7 +119,7 @@ The planner does not write files; oversized BB copies are returned in `blocked`.
 
 ### Canon screen
 
-`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:589-624`). Skill state labels, hints, legend entries, and out-of-canon filters call `t()` during render, after the overview response sets the selected language (`app.tsx:113-118`, `app.tsx:430-450`, `app.tsx:462-489`, `app.tsx:496-506`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
+`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:589-624`). Skill state labels, hints, legend entries, and out-of-canon filters call `t()` during render, after BB’s document locale sets the selected language (`app.tsx:113-118`, `app.tsx:430-450`, `app.tsx:462-489`, `app.tsx:496-506`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
 
 1. It derives counts for all rows, gaps, divergent states, plugin-provided entries and oversized rows (`app.tsx:590-602`).
 2. It filters by the selected category and trimmed, case-insensitive skill-name query (`app.tsx:604-614`).

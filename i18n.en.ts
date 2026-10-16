@@ -2,6 +2,15 @@
 // Russian instead of an empty screen, and the source stays readable in place.
 // Placeholders {0}, {1} keep their meaning from the Russian string.
 export const EN: Record<string, string> = {
+  "Удалить": "Remove",
+  "Убрать ссылку": "Remove link",
+  "За канон": "Move to the canon",
+  "Перенести в канон": "Move to the canon",
+  "Скопировать в канон": "Copy to the canon",
+  "В канон (копия новее)": "Use newer copy for the canon",
+  "Симлинк": "Symlink",
+  "Заменить копию (канон новее)": "Replace copy with newer canon",
+  "Удалить копию (канон новее)": "Remove copy (canon is newer)",
   // --- CLI help ----------------------------------------------------------
   "  bb tools status [--json]        Каталог, машины, расхождения":
     "  bb tools status [--json]        Catalogue, machines, drift",
@@ -158,7 +167,6 @@ export const EN: Record<string, string> = {
   "Принять": "Adopt",
   "Локально": "Local only",
   "Скрыть": "Hide",
-  "Удалить": "Remove",
   "Восстановить": "Restore",
   "Вернуть в канон": "Restore into the canon",
   "Отмена": "Cancel",
@@ -479,6 +487,13 @@ export const EN: Record<string, string> = {
   "файл слишком большой": "the file is too large",
   "в файле есть комментарии — плагин его не перезаписывает":
     "the file has comments — the plugin does not rewrite it",
+  "не удалось разобрать: {0}": "could not parse: {0}",
+  "внутри приложения: {0}": "inside the application: {0}",
+  "относительный путь: {0}": "relative path: {0}",
+  "абсолютный путь: {0}": "absolute path: {0}",
+  "аргумент с локальным путём: {0}": "argument with a local path: {0}",
+  "адрес на loopback: {0}": "loopback address: {0}",
+  "ссылка на локальный секрет ${…}": "reference to a local secret ${…}",
   "неизвестная папка": "unknown folder",
   "неизвестный агент": "unknown agent",
   "папка не найдена": "folder not found",

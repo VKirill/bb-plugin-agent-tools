@@ -61,11 +61,14 @@ import {
   hostCallFailureReason,
   disconnectedHostError,
   callHostTimed,
+  translateDiagnostic,
   type Lang,
 } from "./i18n";
+
 import { EN } from "./i18n.en";
 
 setDictionary(EN);
+
 import {
   buildProviderRows,
   detectOpenCodeDrift,
@@ -477,11 +480,11 @@ interface HostPluginsSnapshot {
 }
 
 export default async function plugin(bb: BbPluginApi) {
-  // Язык интерфейса плагина. Храним в kv, а не в настройках: подписи самих
-  // настроек объявляются раньше, чем их значения можно прочитать, поэтому
-  // источник правды должен быть доступен до define.
+  // CLI and server-generated labels use KV because setting labels
+  // are declared before their values can be read. New installations default to
+  // English; an explicit stored choice is retained.
   const storedLang = await bb.storage.kv.get<string>("lang");
-  let currentLang: Lang = isLang(storedLang) ? storedLang : "ru";
+  let currentLang: Lang = isLang(storedLang) ? storedLang : "en";
   setLang(currentLang);
 
   const settings = bb.settings.define({
@@ -2335,7 +2338,7 @@ export default async function plugin(bb: BbPluginApi) {
       lines.push(`\n${tp("Новые серверы ({0}):", current.pending.length)}`);
       for (const item of current.pending) {
         lines.push(
-          `  ${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [${tp("локальный: {0}", item.reason)}]` : ""}`,
+          `  ${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [${tp("локальный: {0}", translateDiagnostic(item.reason))}]` : ""}`,
         );
       }
     }
@@ -2514,10 +2517,10 @@ export default async function plugin(bb: BbPluginApi) {
             current.pending.length === 0
               ? t("Новых серверов нет.")
               : current.pending
-                  .map(
-                    (item) =>
-                      `${item.name}  ← ${item.hostName}/${item.kind}${item.localOnly ? `  [${tp("локальный: {0}", item.reason)}]` : ""}`,
-                  )
+                  .map((item) => {
+                    const local = item.localOnly ? `  [${tp("локальный: {0}", translateDiagnostic(item.reason))}]` : "";
+                    return `${item.name}  ← ${item.hostName}/${item.kind}${local}`;
+                  })
                   .join("\n"),
           );
         }
