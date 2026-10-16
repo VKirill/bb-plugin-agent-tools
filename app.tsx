@@ -2223,7 +2223,7 @@ function GatewayAddDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent data-bb-ru-skip="" className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("Добавить серверы за шлюз MetaMCP")}</DialogTitle>
             <DialogDescription>
@@ -3283,7 +3283,7 @@ function CatalogPage() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+      <div data-bb-ru-skip="" className="flex h-full min-h-0 min-w-0 overflow-hidden">
         <DeviceList data={data} selected={selected} onSelect={setSelected} />
         <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-scroll md:[scrollbar-gutter:stable]">
           <div className="mx-auto box-border w-full max-w-7xl px-3 pb-8 pt-3 md:px-5 md:pt-4">
@@ -3675,7 +3675,7 @@ function CatalogPage() {
         </div>
       </div>
       <Dialog open={fanoutConfirmOpen} onOpenChange={setFanoutConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent data-bb-ru-skip="" className="max-w-md">
           <DialogHeader>
             <DialogTitle>{t("Обновить скиллы на всех машинах?")}</DialogTitle>
             <DialogDescription>

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.4
+
+- Keep Agent Tools’ own English/Russian dictionary in control when a global UI translator is active, including dialogs. Discovered while verifying the English localization from @Jehu’s PR #1; thanks again for the contribution!
+
+
 ## 0.2.3
 
 - English plugin metadata, marketplace overview, bundled skill, and default CLI language. Thanks to @Jehu for PR #1 and the English translation work.
