@@ -2,6 +2,7 @@
 // plus the comparison and "machine-bound" rules the catalogue relies on.
 import type { McpStyle } from "./agents";
 import type { McpServer } from "./contract";
+import { isWindowsAbsPath, unwrapShell } from "./platform.ts";
 
 type Raw = Record<string, unknown>;
 
@@ -208,20 +209,26 @@ export function signature(server: McpServer): string {
       : Object.entries(record)
           .map(([key, value]) => `${key}=${value}`)
           .sort();
+  // `cmd /c npx -y x` is the same server as `npx -y x`.
+  const inner = unwrapShell(server.command ?? "", server.args);
   return JSON.stringify([
     server.transport,
-    basename(server.command ?? ""),
-    server.args ?? [],
+    basename(inner.command),
+    inner.args ?? [],
     server.url ?? "",
     sorted(server.env),
     sorted(server.headers),
   ]);
 }
 
-/** Commands are compared by executable name: /opt/homebrew/bin/x === /usr/bin/x. */
+/**
+ * Commands are compared by executable name: /opt/homebrew/bin/x === /usr/bin/x,
+ * and C:\bin\x.cmd === x (both separators and a Windows executable extension are dropped).
+ */
 function basename(command: string): string {
-  const cut = command.lastIndexOf("/");
-  return cut === -1 ? command : command.slice(cut + 1);
+  const cut = Math.max(command.lastIndexOf("/"), command.lastIndexOf("\\"));
+  const name = cut === -1 ? command : command.slice(cut + 1);
+  return name.replace(/\.(exe|cmd|bat)$/i, "");
 }
 
 export function sameServer(a: McpServer, b: McpServer): boolean {
@@ -230,7 +237,8 @@ export function sameServer(a: McpServer, b: McpServer): boolean {
 
 const LOOPBACK = /(^|\/\/)(127\.0\.0\.1|localhost|\[::1\]|0\.0\.0\.0)(:|\/|$)/i;
 const PLACEHOLDER = /\$\{[^}]+\}/;
-const APP_BUNDLE = /\.app\/|^\/Applications\//;
+const APP_BUNDLE =
+  /\.app\/|^\/Applications\/|[\\/]AppData[\\/]Local[\\/]Programs[\\/]|[\\/]WindowsApps[\\/]/i;
 const GATEWAY_URL = /\/metamcp\/[^/]+\//i;
 
 /**
@@ -241,7 +249,7 @@ const GATEWAY_URL = /\/metamcp\/[^/]+\//i;
 export type ServerRole = "server" | "gateway" | "vendor";
 
 export function classifyRole(server: McpServer): ServerRole {
-  const command = server.command ?? "";
+  const command = unwrapShell(server.command ?? "", server.args).command;
   if (/metamcp/i.test(command) || (server.url !== undefined && GATEWAY_URL.test(server.url))) {
     return "gateway";
   }
@@ -257,7 +265,8 @@ export function classifyLocal(server: McpServer): {
   localOnly: boolean;
   reason: string;
 } {
-  const command = server.command ?? "";
+  const inner = unwrapShell(server.command ?? "", server.args);
+  const command = inner.command;
   if (APP_BUNDLE.test(command)) {
     return { localOnly: true, reason: `внутри приложения: ${command}` };
   }
@@ -267,8 +276,11 @@ export function classifyLocal(server: McpServer): {
   if (command.startsWith("/") && !command.startsWith("/usr/bin/env")) {
     return { localOnly: true, reason: `абсолютный путь: ${command}` };
   }
-  for (const arg of server.args ?? []) {
-    if (arg.startsWith("/") && arg.includes("/")) {
+  if (isWindowsAbsPath(command)) {
+    return { localOnly: true, reason: `абсолютный путь: ${command}` };
+  }
+  for (const arg of inner.args ?? []) {
+    if ((arg.startsWith("/") && arg.includes("/")) || isWindowsAbsPath(arg)) {
       return { localOnly: true, reason: `аргумент с локальным путём: ${arg}` };
     }
   }

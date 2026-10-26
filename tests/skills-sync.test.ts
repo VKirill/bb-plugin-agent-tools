@@ -9,17 +9,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gitBinSearchDirs } from "../i18n.ts";
+import { binCandidates } from "../platform.ts";
 
 async function resolveGitBin(): Promise<string | null> {
   const { stat } = await import("node:fs/promises");
   const { homedir } = await import("node:os");
-  for (const dir of gitBinSearchDirs(process.env.PATH ?? "", homedir())) {
-    const candidate = path.join(dir, "git");
-    try {
-      const info = await stat(candidate);
-      if (info.isFile() || info.isSymbolicLink()) return candidate;
-    } catch {
-      // keep looking
+  for (const dir of gitBinSearchDirs(process.env.PATH ?? "", homedir(), path.delimiter)) {
+    for (const name of binCandidates("git")) {
+      const candidate = path.join(dir, name);
+      try {
+        const info = await stat(candidate);
+        if (info.isFile() || info.isSymbolicLink()) return candidate;
+      } catch {
+        // keep looking
+      }
     }
   }
   return null;
@@ -30,15 +33,29 @@ const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 
 // D2 must exercise the function that the real host handler invokes. Build the
 // host entry, then import its named exports instead of testing a duplicate helper.
-await execFileAsync("bb", ["plugin", "build", "."], { cwd: pluginRoot });
-const hostModule = await import(
-  `${pathToFileURL(path.join(pluginRoot, "dist", "host.js")).href}?skills-sync-test=${Date.now()}`
-);
-const { runGit, syncSkillsCanon } = hostModule;
+// On Windows bb is a bb.cmd shim, which only a shell can launch.
+async function loadSyncModule(): Promise<{ runGit: any; syncSkillsCanon: any }> {
+  try {
+    await execFileAsync("bb", ["plugin", "build", "."], { cwd: pluginRoot, shell: process.platform === "win32" });
+  } catch (cause) {
+    // The bb build toolchain cannot always bootstrap on Windows; host.ts only
+    // re-exports these two functions from skills-sync.ts, so load the source directly.
+    if (process.platform !== "win32") throw cause;
+    return import("../skills-sync.ts");
+  }
+  return import(
+    `${pathToFileURL(path.join(pluginRoot, "dist", "host.js")).href}?skills-sync-test=${Date.now()}`
+  );
+}
+const { runGit, syncSkillsCanon } = await loadSyncModule();
 
 const gitEnv = {
   ...process.env,
   GIT_TERMINAL_PROMPT: "0",
+  // Fixture repos must stay byte-exact even where git defaults to core.autocrlf=true (Windows).
+  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_KEY_0: "core.autocrlf",
+  GIT_CONFIG_VALUE_0: "false",
   GIT_AUTHOR_NAME: "fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.com",
   GIT_COMMITTER_NAME: "fixture",

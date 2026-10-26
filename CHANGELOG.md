@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.6
+
+- Поддержка Windows-машин. Раньше плагин видел там только часть картины: Claude Code числился «не установленным», хотя `claude.exe` лежал в `~/.local/bin`.
+- Поиск CLI и git учитывает `PATHEXT` (`claude.exe`, `kimi.exe`, `codex.cmd`, `git.exe`) и типичные каталоги Windows: `%APPDATA%\npm`, `Program Files\Git`, `Program Files\nodejs`, `~\.local\bin`, `~\.bun\bin`, scoop.
+- Git канона навыков запускается с `core.autocrlf=false`: иначе checkout с CRLF менял размеры файлов, отпечатки расходились с другими машинами и каждый скилл выглядел изменённым. На macOS и Linux поведение прежнее.
+- Ссылки на скиллы в домах CLI создаются как junction — Developer Mode и права администратора не нужны.
+- Машинно-зависимыми считаются и Windows-пути (`C:\…`, `C:/…`, UNC) в команде и аргументах, а также каталоги приложений (`AppData\Local\Programs`, `WindowsApps`). Шлюз MetaMCP узнаётся и за обёрткой `cmd /c …\metamcp-run.cmd`.
+- Сервер `npx -y pkg` раскатывается на Windows в рабочей форме `cmd /c npx -y pkg` (нативные Claude Code и Codex не запускают `.cmd`-шимы напрямую), а при сравнении `cmd /c npx -y pkg` равен `npx -y pkg`, как и `C:\…\gitnexus.cmd` равен `/usr/bin/gitnexus`.
+- Тесты запускаются на Windows: `tests/skills-sync.test.ts` больше не падает на `bb.cmd`, ищет `git.exe`, а новый `tests/windows.test.ts` покрывает правила платформы.
+
 ## 0.2.5
 
 - MCP scans accept structured environment values up to 131,072 characters, preserving them without truncation. BB’s Cursor bridge stores serialized tool schemas in `BB_ACP_DYNAMIC_TOOLS`; the old 8192-character limit could reject an entire machine scan. HTTP header limits stay unchanged.

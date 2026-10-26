@@ -15,6 +15,7 @@ import { hostContract, type DetectedAgent, type McpServer, type OpenCodeScan, ty
 import { fromDialect, mergeEntry, toDialect } from "./normalize.js";
 import { readServers, removeServer, upsertServer } from "./toml-mcp.js";
 import { locationPolicy, planFanOut, type FanOutOp, type FanOutState, type SkillActionMode } from "./skills.js";
+import { binCandidates, wrapForWindows } from "./platform.js";
 import { resolveGitBin, runGit, syncSkillsCanon } from "./skills-sync.js";
 import { copySkillTree, isSkillJunk, measureBbTree, SKILL_TAR_EXCLUDES } from "./skill-tree.js";
 import { probeServer } from "./probe.js";
@@ -88,16 +89,24 @@ function searchDirs(): string[] {
 async function findBin(names: readonly string[]): Promise<string | null> {
   for (const name of names) {
     for (const dir of searchDirs()) {
-      const candidate = path.join(dir, name);
-      try {
-        const info = await stat(candidate);
-        if (info.isFile() || info.isSymbolicLink()) return candidate;
-      } catch {
-        // keep looking
+      for (const fileName of binCandidates(name)) {
+        const candidate = path.join(dir, fileName);
+        try {
+          const info = await stat(candidate);
+          if (info.isFile() || info.isSymbolicLink()) return candidate;
+        } catch {
+          // keep looking
+        }
       }
     }
   }
   return null;
+}
+
+/** Directory link: a junction on Windows (no Developer Mode or admin needed), a symlink elsewhere. */
+async function linkDir(target: string, linkPath: string): Promise<void> {
+  if (process.platform === "win32") await symlink(target, linkPath, "junction");
+  else await symlink(target, linkPath);
 }
 
 /** JSON with // and /* *​/ comments; returns null when the text has comments. */
@@ -550,7 +559,7 @@ async function adoptSkill(
       await rename(canonicalName, path.join(backupRoot, `${name}.${stamp}`));
     }
     await rename(original, canonicalName);
-    if (leavesLink) await symlink(canonicalName, original);
+    if (leavesLink) await linkDir(canonicalName, original);
     return { ok: true, error: null };
   }
   if (mode === "adopt") {
@@ -567,7 +576,7 @@ async function adoptSkill(
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     await rename(original, path.join(backupRoot, `${name}.${stamp}`));
   }
-  if (leavesLink) await symlink(canonicalName, original);
+  if (leavesLink) await linkDir(canonicalName, original);
   return { ok: true, error: null };
 }
 
@@ -924,7 +933,7 @@ export default experimental_defineHostEntry({
               if (info !== null && !info.isSymbolicLink()) throw new Error("на месте реальная папка");
               if (info !== null) await unlink(here);
               await mkdir(location.path, { recursive: true });
-              await symlink(canon, here);
+              await linkDir(canon, here);
             } else if (op.kind === "mirror") {
               const lost = await wouldLoseFiles(here, canon);
               if (lost.length > 0) {
@@ -1158,15 +1167,20 @@ export default experimental_defineHostEntry({
           const applied: typeof kindOps = [];
           try {
             for (const op of kindOps) {
+              // Native Windows CLIs cannot spawn .cmd shims directly: write them as `cmd /c …`.
+              const server =
+                process.platform === "win32" && op.action === "upsert"
+                  ? wrapForWindows(op.server)
+                  : op.server;
               if (config.file.format === "toml") {
                 const current = readServers(text ?? "", config.file.pointer)[op.server.name];
-                const values = mergeEntry(current, toDialect(config.file.style, op.server));
+                const values = mergeEntry(current, toDialect(config.file.style, server));
                 text =
                   op.action === "remove"
                     ? removeServer(text ?? "", op.server.name, config.file.pointer)
                     : upsertServer(text ?? "", op.server.name, values, config.file.pointer);
               } else {
-                text = applyToJson(text, config.file, op.action, op.server);
+                text = applyToJson(text, config.file, op.action, server);
               }
               applied.push(op);
             }

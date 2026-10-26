@@ -301,7 +301,25 @@ export function gitBinSearchDirs(envPath: string, homeDir: string, delimiter = "
     "/Library/Developer/CommandLineTools/usr/bin",
     "/Applications/Xcode.app/Contents/Developer/usr/bin",
   ];
+  if (delimiter === ";") return [...new Set([...fromPath, ...windowsBinDirs(homeDir)])];
   return [...new Set([...fromPath, ...extra])];
+}
+
+/** Typical Windows dirs for git, node and user-level CLIs; env-dependent ones are skipped when unset. */
+function windowsBinDirs(homeDir: string): string[] {
+  const env = typeof process === "undefined" ? {} : process.env;
+  const dirs: string[] = [];
+  if (env.APPDATA) dirs.push(`${env.APPDATA}\\npm`);
+  if (env.LOCALAPPDATA) dirs.push(`${env.LOCALAPPDATA}\\Programs\\Git\\cmd`);
+  dirs.push(
+    "C:\\Program Files\\Git\\cmd",
+    "C:\\Program Files\\Git\\bin",
+    "C:\\Program Files\\nodejs",
+    `${homeDir}\\.local\\bin`,
+    `${homeDir}\\.bun\\bin`,
+    `${homeDir}\\scoop\\shims`,
+  );
+  return dirs;
 }
 
 /** Схема remote без URL и без секретов — чтобы ошибка сказала, чего не хватает. */

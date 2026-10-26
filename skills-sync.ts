@@ -4,8 +4,9 @@ import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFil
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { clipErrorText, formatSkillsSyncError, gitBinSearchDirs, parseUntrackedOverwriteNames } from "./i18n.js";
-import { SKILL_JUNK_DIRS } from "./skill-tree.js";
+import { binCandidates } from "./platform.ts";
+import { clipErrorText, formatSkillsSyncError, gitBinSearchDirs, parseUntrackedOverwriteNames } from "./i18n.ts";
+import { SKILL_JUNK_DIRS } from "./skill-tree.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -42,7 +43,8 @@ export async function runGit(
   bin: string,
   args: string[],
 ): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(bin, args, {
+  // autocrlf=false keeps the shared canon byte-identical across platforms (Windows git defaults to true).
+  return execFileAsync(bin, ["-c", "core.autocrlf=false", ...args], {
     maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   });
@@ -239,12 +241,14 @@ export async function syncSkillsCanon(
 /** git для host-процесса и для раскладки на сервер BB: PATH launchd часто пуст. */
 export async function resolveGitBin(home = os.homedir()): Promise<string | null> {
   for (const dir of gitBinSearchDirs(process.env.PATH ?? "", home, path.delimiter)) {
-    const candidate = path.join(dir, "git");
-    try {
-      const info = await stat(candidate);
-      if (info.isFile() || info.isSymbolicLink()) return candidate;
-    } catch {
-      // keep looking
+    for (const name of binCandidates("git")) {
+      const candidate = path.join(dir, name);
+      try {
+        const info = await stat(candidate);
+        if (info.isFile() || info.isSymbolicLink()) return candidate;
+      } catch {
+        // keep looking
+      }
     }
   }
   return null;

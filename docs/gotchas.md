@@ -105,6 +105,21 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 **Workaround:** Store required skill content outside the excluded paths and rescan after rollout.
 
+## Windows hosts
+
+### Shims, junctions, line endings and PATHEXT
+
+**Problem:** A Windows host differs from macOS and Linux in four ways that the host entry has to absorb (`platform.ts`, `host.ts`, `skills-sync.ts`, `normalize.ts`).
+
+- **`cmd /c` wrapper.** Native Windows Claude Code and Codex cannot spawn `.cmd` shims (`npx`, `gitnexus`, `agentmemory`) directly. When the host entry writes a stdio server on `win32`, `wrapForWindows` rewrites a bare or `.cmd`/`.bat` command into `{"command":"cmd","args":["/c","npx","-y","pkg"]}`. `signature` unwraps `cmd /c` and drops `.exe`/`.cmd`/`.bat`, so the wrapped and plain forms count as the same server and do not show up as drift.
+- **Junctions.** `linkDir` creates skill links as junctions on Windows because a directory symlink needs Developer Mode or admin rights. Targets are absolute paths.
+- **`autocrlf=false` for the canon.** The default git runner prepends `-c core.autocrlf=false`. Windows git usually has `core.autocrlf=true`, which changes file sizes and therefore fingerprints, so every skill would look divergent from the other machines. The flag is a no-op on Unix; injected test runners are not touched.
+- **PATHEXT.** `findBin` and `resolveGitBin` try the `binCandidates` names (`git.com`, `git.exe`, `git.bat`, `git.cmd`, `git`) in every search directory; `gitBinSearchDirs` adds the usual Windows install directories when called with the `;` delimiter.
+
+**Risk:** Forgetting any of these makes a CLI look "not installed", the canon look divergent, or a link fail with `EPERM`. Windows paths (`C:\…`) in a command or argument mark a server as machine-bound.
+
+**Workaround:** Keep platform checks in `platform.ts` and `process.platform` guards at the write sites. `bb plugin build` may fail to bootstrap its toolchain on Windows; `tests/skills-sync.test.ts` then loads `skills-sync.ts` from source.
+
 See [MCP catalogue](features/mcp-catalog.md), [skills](features/skills.md), [OpenCode](features/opencode.md), and [data model](data-model.md).
 
 <!-- lane-pilot:backlinks -->
