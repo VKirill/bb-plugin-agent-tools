@@ -310,7 +310,7 @@ export function createSkillsHubService(
       return id;
     },
     sendMessage: async (threadId, text) => {
-      await bb.sdk.threads.send({ threadId, input: [{ type: "text", text }] } as Parameters<typeof bb.sdk.threads.send>[0]);
+      await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{ type: "text", text }] } as Parameters<typeof bb.sdk.threads.send>[0]);
     },
     waitIdle: async (threadId, timeoutMs) => {
       const started = Date.now();
