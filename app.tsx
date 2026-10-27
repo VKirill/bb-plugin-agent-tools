@@ -32,6 +32,8 @@ import {
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
 import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, languageFromLocale, translateDiagnostic } from "./i18n";
 import { EN } from "./i18n.en";
+import { SkillsPage } from "./skills-page";
+import "./app.css";
 
 setDictionary(EN);
 import { Button } from "@/components/ui/button";
@@ -913,6 +915,43 @@ function Section({
   );
 }
 
+type ToolSection = "skills" | "mcp" | "plugins" | "opencode";
+
+const TOOL_SECTIONS: Array<{ id: ToolSection; icon: string }> = [
+  { id: "skills", icon: "Brain" },
+  { id: "mcp", icon: "Plug02" },
+  { id: "plugins", icon: "Puzzle" },
+  { id: "opencode", icon: "ComputerTerminal01" },
+];
+
+function sectionTitle(section: ToolSection): string {
+  switch (section) {
+    case "skills":
+      return t("Навыки");
+    case "mcp":
+      return t("MCP-серверы");
+    case "plugins":
+      return t("Плагины CLI");
+    case "opencode":
+      return "OpenCode";
+  }
+}
+
+/** Narrow screens: the sections as one scrolling capsule above the title. */
+function SectionStrip({ section, onSection }: { section: ToolSection; onSection: (next: ToolSection) => void }) {
+  return (
+    <Tabs value={section} onValueChange={(next) => onSection(next as ToolSection)} className="mb-2 w-full md:hidden">
+      <TabsList aria-label={t("Разделы")} className="flex w-full overflow-x-auto">
+        {TOOL_SECTIONS.map((item) => (
+          <TabsTrigger key={item.id} value={item.id} className="shrink-0">
+            {sectionTitle(item.id)}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
+}
+
 function HostStrip({
   data,
   selected,
@@ -945,13 +984,43 @@ function DeviceList({
   data,
   selected,
   onSelect,
+  section,
+  onSection,
+  attention,
 }: {
   data: Overview;
   selected: string | null;
   onSelect: (hostId: string | null) => void;
+  section: ToolSection;
+  onSection: (next: ToolSection) => void;
+  attention: Record<ToolSection, number>;
 }) {
   return (
-    <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-border/60 p-3 md:block">
+    <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border/60 p-3 md:block">
+      <h2 className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {t("Разделы")}
+      </h2>
+      <div className="mb-4 space-y-0.5">
+        {TOOL_SECTIONS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSection(item.id)}
+            aria-current={section === item.id ? "page" : undefined}
+            className="at-nav-item flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm"
+          >
+            <Icon name={item.icon} className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{sectionTitle(item.id)}</span>
+            {attention[item.id] > 0 ? <span className="at-pill at-pill-warning">{attention[item.id]}</span> : null}
+          </button>
+        ))}
+      </div>
+      {section === "skills" ? (
+        <p className="px-2 text-xs text-muted-foreground">
+          {t("Навыки живут на хабе: BB отдаёт их в каждую сессию на любой машине.")}
+        </p>
+      ) : (
+      <>
       <h2 className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {t("Устройства")}
       </h2>
@@ -1130,6 +1199,8 @@ function DeviceList({
             );
           })}
         </>
+      )}
+      </>
       )}
     </aside>
   );
@@ -2966,7 +3037,8 @@ function CatalogPage() {
   }, []);
   const [pendingFilter, setPendingFilter] = useState<PendingFilterKey>("new");
   const [gatewayAddOpen, setGatewayAddOpen] = useState(false);
-  const [toolTab, setToolTab] = useState<"mcp" | "skills" | "backups" | "plugins" | "opencode">("mcp");
+  const [toolTab, setToolTab] = useState<ToolSection>("skills");
+  const [skillsAttention, setSkillsAttention] = useState(0);
   const [skillFilter, setSkillFilter] = useState<SkillFilterKey>("all");
   const [fanoutConfirmOpen, setFanoutConfirmOpenState] = useState(
     () => retainedCatalogState.fanoutConfirmOpen,
@@ -3128,9 +3200,6 @@ function CatalogPage() {
       if (byState !== 0) return byState;
       return a.name.localeCompare(b.name) || a.hostName.localeCompare(b.hostName);
     });
-  const skillsAttention = data.skillsPending.filter(
-    (item) => selected === null || item.hostId === selected,
-  ).length;
   const skillCounts: Record<SkillFilterKey, number> = {
     all: skillRows.length,
     copy: skillRows.filter((row) => row.state === "copy").length,
@@ -3284,21 +3353,34 @@ function CatalogPage() {
   return (
     <TooltipProvider delayDuration={200}>
       <div data-bb-ru-skip="" className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        <DeviceList data={data} selected={selected} onSelect={setSelected} />
+        <DeviceList
+          data={data}
+          selected={selected}
+          onSelect={setSelected}
+          section={toolTab}
+          onSection={setToolTab}
+          attention={{
+            skills: skillsAttention,
+            mcp: data.pending.length,
+            plugins: 0,
+            opencode: data.opencode?.drift?.length ?? 0,
+          }}
+        />
         <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-scroll md:[scrollbar-gutter:stable]">
           <div className="mx-auto box-border w-full max-w-7xl px-3 pb-8 pt-3 md:px-5 md:pt-4">
-            <HostStrip data={data} selected={selected} onSelect={setSelected} />
+            <SectionStrip section={toolTab} onSection={setToolTab} />
+            {toolTab === "skills" ? null : <HostStrip data={data} selected={selected} onSelect={setSelected} />}
             <Tabs
               value={toolTab}
               onValueChange={(value) =>
-                setToolTab(value as "mcp" | "skills" | "backups" | "plugins" | "opencode")
+                setToolTab(value as ToolSection)
               }
             >
               {/* Keep the title and refresh action above the tabs. */}
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
                 <div className="min-w-0">
                   <h1 className="truncate text-xl font-medium">
-                    {machine === null ? t("Инструменты агентов") : machine.name}
+                    {toolTab === "skills" ? t("Навыки") : machine === null ? sectionTitle(toolTab) : `${sectionTitle(toolTab)} · ${machine.name}`}
                   </h1>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {plural(data.hosts.length, ["машина", "машины", "машин"])} · {t("обход")}{" "}
@@ -3320,30 +3402,6 @@ function CatalogPage() {
                 </div>
               </div>
 
-              <div className="mt-3">
-                <TabsList>
-                  <TabsTrigger value="mcp">{t("MCP-серверы")}</TabsTrigger>
-                  <TabsTrigger value="skills">
-                    {t("Скиллы")}
-                    {skillsAttention === 0 ? null : ` · ${skillsAttention}`}
-                  </TabsTrigger>
-                  <TabsTrigger value="backups">{t("Архив")}</TabsTrigger>
-                  <TabsTrigger value="plugins">
-                    {t("Плагины")}
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      {data.plugins?.length ?? 0}
-                    </span>
-                  </TabsTrigger>
-                  <TabsTrigger value="opencode">
-                    OpenCode
-                    {(data.opencode?.drift?.length ?? 0) === 0 ? null : (
-                      <span className="ml-1.5 text-xs font-medium text-warning-text">
-                        · {data.opencode.drift.length}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
 
               {error === null ? null : (
                 <ActionBanner text={error} tone="error" onClose={dismissError} />
@@ -3394,37 +3452,6 @@ function CatalogPage() {
                 </div>
               ) : null}
 
-              {toolTab === "skills" ? (
-                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setFanoutConfirmOpen(true)}
-                  >
-                    {t("Обновить скиллы везде")}
-                  </Button>
-                  {data.skillsSyncRemoteConfigured ? null : (
-                    <span className="text-xs text-muted-foreground">
-                      {t("Раскатка действует внутри каждой машины")}
-                    </span>
-                  )}
-                  <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-                    <Switch
-                      checked={data.skillsFanOutAuto}
-                      disabled={busy}
-                      aria-label={tp(
-                        "Автообновление скиллов {0}",
-                        data.skillsFanOutAuto ? t("включена") : t("выключена"),
-                      )}
-                      onCheckedChange={(enabled) =>
-                        act(() => rpc.call("set_skills_fanout_auto", { enabled }))
-                      }
-                    />
-                    {t("Обновлять по расписанию")}
-                  </label>
-                </div>
-              ) : null}
 
               {toolTab === "opencode" ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -3518,144 +3545,8 @@ function CatalogPage() {
               </Section>
             )}
               </TabsContent>
-              <TabsContent value="skills" className="mt-4">
-                <SkillCanon data={data} selected={selected} />
-                <Separator className="my-4" />
-                <SkillStateLegend />
-                <Tabs
-                  className="mt-3"
-                  value={skillFilter}
-                  onValueChange={(next) => setSkillFilter(next as SkillFilterKey)}
-                >
-                  <TabsList className="flex h-auto min-h-9 flex-wrap">
-                    {skillFilters().map((option) => (
-                      <TabsTrigger key={option.key} value={option.key} title={option.hint}>
-                        {option.label}
-                        <span className="ml-1.5 text-xs text-muted-foreground">
-                          {skillCounts[option.key]}
-                        </span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                  <TabsContent value={skillFilter} className="mt-3">
-                {(() => {
-                  const ops = skillVisible
-                    .map((row) => ({ row, action: resolveRowAction(row as unknown as SkillRowT) }))
-                    .filter((item): item is { row: (typeof skillVisible)[number]; action: NonNullable<ReturnType<typeof resolveRowAction>> } => item.action !== null && item.action.manual !== true);
-                  const ambiguous = skillVisible.filter((row) => row.state === "diverged" && (row.mtime === null || row.canonicalMtime === null || row.mtime === row.canonicalMtime)).length;
-                  return ops.length > 1 ? (
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          act(() =>
-                            rpc
-                              .call(
-                                "skill_adopt_bulk",
-                                { ops: ops.map(({ row, action }) => ({ hostId: row.hostId, locationId: row.locationId, name: row.name, mode: action.mode })) },
-                              )
-                              .then((result) => {
-                                setNotice(
-                                  tp("Правила применились: {0}, ошибок: {1}", result.changed, result.failed) +
-                                    (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
-                                );
-                                return result.overview;
-                              }),
-                          )
-                        }
-                      >
-                        {t("Применить все правила")} · {ops.length}
-                      </Button>
-                      {ambiguous > 0 ? (
-                        <span className="text-xs text-muted-foreground">
-                          {t("расходятся с одинаковой датой")}: {ambiguous} — {t("решить вручную")}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null;
-                })()}
-                {skillVisible.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {skillRows.length === 0
-                      ? t("Всё на местах: вне канона скиллов не найдено.")
-                      : t("В этом срезе пусто — посмотри другие.")}
-                  </p>
-                ) : (
-                <CollectionFrame>
-                  <Table className="min-w-[32rem]">
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Скилл")}</TableHead>
-                        {selected === null ? (
-                          <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Машина")}</TableHead>
-                        ) : null}
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Папка")}</TableHead>
-                        <TableHead className="px-3 text-xs font-medium text-muted-foreground">{t("Состояние")}</TableHead>
-                        <TableHead className="w-10 px-2" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {skillVisible.map((row) => (
-                        <TableRow key={`${row.hostId}:${row.locationId}:${row.name}`} className="group">
-                          <TableCell className="px-3 py-2.5 text-sm font-medium">
-                            <span className="inline-flex items-center gap-2">
-                              <SkillStateDot state={row.state} />
-                              {row.name}
-                            </span>
-                          </TableCell>
-                          {selected === null ? (
-                            <TableCell className="px-3 py-2.5 text-sm">{row.hostName}</TableCell>
-                          ) : null}
-                          <TableCell className="px-3 py-2.5">
-                            <TruncatedPath path={locationPath(row.locationId)} />
-                          </TableCell>
-                          <TableCell className="px-3 py-2.5">
-                            <Badge
-                              variant={row.state === "only-here" || row.state === "diverged" || row.state === "linked-external" ? "secondary" : "outline"}
-                              className="font-normal"
-                              title={skillStateHints()[row.state]}
-                            >
-                              {skillStateLabels()[row.state] ?? row.state}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="px-2 py-2.5 text-right">
-                            <span className="inline-flex items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
-                              {(() => {
-                                const action = resolveRowAction(row as unknown as SkillRowT);
-                                if (action === null) return null;
-                                const destructive = action.mode === "take" || action.mode === "delete";
-                                return (
-                                  <span
-                                    title={row.mtime !== null ? new Date(row.mtime).toLocaleString() : undefined}
-                                    className="inline-flex"
-                                  >
-                                    <Button
-                                      size="sm"
-                                      variant={destructive ? "destructive" : "outline"}
-                                      className={TREE_ACTION}
-                                      disabled={busy}
-                                      onClick={() => act(() => rpc.call("skill_adopt", { hostId: row.hostId, locationId: row.locationId, name: row.name, mode: action.mode as SkillActionMode }))}
-                                    >
-                                      {t(action.label)}
-                                    </Button>
-                                  </span>
-                                );
-                              })()}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CollectionFrame>
-                )}
-                  </TabsContent>
-                </Tabs>
-              </TabsContent>
-              <TabsContent value="backups" className="mt-4">
-                <SkillBackups hostId={selected} lastScanAt={data.lastScanAt} />
+              <TabsContent value="skills" className="mt-0">
+                <SkillsPage onAttention={setSkillsAttention} />
               </TabsContent>
               <TabsContent value="plugins" className="mt-4">
                 <PluginsTabContent data={data} selected={selected} />

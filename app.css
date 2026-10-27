@@ -1,0 +1,217 @@
+/* Agent Tools in the Pokecut look. Kit: BB-сервис docs/design/pokecut-plugin.css; rules: docs/DESIGN.md. */
+/*
+ * Pokecut plugin kit: the brand layer for BB-сервис plugin screens.
+ * Rules: docs/DESIGN.md. Reference implementation: plugins/bb-plugin-lane-pilot/app.css.
+ *
+ * Copy into the plugin's app.css after the Tailwind imports, then replace
+ *   agent-tools -> the plugin id from package.json (bb.id), e.g. lane-pilot
+ *   at-  -> a short plugin prefix, e.g. lp-
+ * The prefix matters: these classes are not scoped by the build, so two
+ * plugins with the same class name would style each other's screens.
+ *
+ * The --at-* tokens read the Pokecut theme's --pk-* tokens and fall back to
+ * BB's own palette, so the screen stays tidy under any BB theme, light or dark.
+ * Radii: 8px rows, buttons, inputs; 6px segments in a 9px track; 12px inner
+ * cards; 14px single cards and the header strip; 16px panels; 20px dialogs.
+ * Rules sit in the components layer, so a Tailwind utility on an element wins.
+ */
+
+[data-bb-plugin="agent-tools"],
+[data-bb-plugin-root]:not([data-bb-plugin]) {
+  --at-well: var(--pk-well, color-mix(in oklab, var(--muted) 45%, var(--card)));
+  --at-card: var(--pk-card, var(--card));
+  --at-outline: var(--pk-outline, var(--input));
+  --at-hairline: var(--pk-hairline, var(--border));
+  --at-drop: var(--pk-drop, 0 1px 2px rgb(0 0 0 / 0.06));
+  --at-card-drop: var(--pk-card-drop, none);
+  --at-raise: 0 1px 3px 0 rgb(0 0 0 / 0.12);
+  --at-accent: var(--pk-accent-gradient, linear-gradient(var(--primary), var(--primary)));
+  --at-accent-edge: var(--pk-accent-edge, none);
+  --at-success: var(--success, #3fae4a);
+  --at-success-text: var(--diff-added, #2f8a45);
+  --at-info: var(--timeline-accent, #3e7be8);
+  --at-warning: var(--warning, #e8a33d);
+  --at-warning-text: var(--warning-text, #b4540f);
+  --at-danger-text: var(--destructive-text, var(--destructive));
+}
+
+@layer components {
+  /* Nested card: a gray well frames a header line and the white body card. */
+  .at-panel {
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px;
+    border: 1px solid var(--at-hairline);
+    border-radius: 16px;
+    background-color: var(--at-well);
+    box-shadow: var(--at-card-drop);
+  }
+
+  .at-panel-head {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .at-panel-body {
+    min-width: 0;
+    max-width: 100%;
+    padding: 12px;
+    border: 1px solid var(--at-hairline);
+    border-radius: 12px;
+    background-color: var(--at-card);
+    box-shadow: var(--at-drop);
+  }
+
+  /* A single white card, for blocks that need no header well. */
+  .at-card {
+    min-width: 0;
+    border: 1px solid var(--at-hairline);
+    border-radius: 14px;
+    background-color: var(--at-card);
+    box-shadow: var(--at-drop);
+  }
+
+  /* Page header strip: a quiet well holding the title and page actions. */
+  .at-strip {
+    min-width: 0;
+    padding: 10px 14px;
+    border: 1px solid var(--at-hairline);
+    border-radius: 14px;
+    background-color: var(--at-well);
+  }
+
+  /* Raised white surface: secondary buttons, inputs on a well, chips. */
+  .at-raised {
+    border: 1px solid var(--at-outline);
+    background-color: var(--at-card);
+    box-shadow: var(--at-drop);
+  }
+
+  /* The one primary action of a screen or dialog. */
+  .at-accent {
+    border-color: transparent;
+    background-color: var(--primary);
+    background-image: var(--at-accent);
+    box-shadow: var(--at-accent-edge);
+    color: #ffffff;
+  }
+
+  .at-accent:hover:not(:disabled) {
+    filter: brightness(1.05) saturate(1.05);
+  }
+
+  /* Segmented control: a gray track, the chosen option raised in white. */
+  .at-seg {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--at-hairline);
+    border-radius: 9px;
+    background-color: var(--at-well);
+  }
+
+  .at-seg-item {
+    border-radius: 6px;
+    color: var(--muted-foreground);
+    font-weight: 500;
+  }
+
+  .at-seg-item:hover {
+    color: var(--foreground);
+  }
+
+  .at-seg-item:is([data-state="active"], [aria-pressed="true"]) {
+    background-color: var(--at-card);
+    box-shadow: var(--at-raise);
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  /* Navigation rows: quiet until chosen; the chosen one is a raised pill. */
+  .at-nav-item {
+    border-radius: 8px;
+    color: var(--muted-foreground);
+  }
+
+  .at-nav-item:hover {
+    color: var(--foreground);
+  }
+
+  .at-nav-item:is([aria-selected="true"], [aria-current="page"]) {
+    background-color: var(--at-card);
+    box-shadow: inset 0 0 0 1px var(--at-outline), var(--at-drop);
+    color: var(--foreground);
+  }
+
+  /* Small square tile for an icon or status mark next to a title. */
+  .at-tile {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--at-outline);
+    border-radius: 9px;
+    background-color: var(--at-card);
+    box-shadow: var(--at-drop);
+  }
+
+  /* Apply to @bb/switch. */
+  .at-switch[data-state="checked"] {
+    background-color: var(--primary);
+    background-image: var(--at-accent);
+  }
+
+  .at-switch[data-state="unchecked"] {
+    background-color: var(--at-outline);
+  }
+
+  .at-switch > span {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  }
+
+  /* «?» help mark: a 14px circle raised to the top of the title line. */
+  .at-help {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+    align-items: center;
+    justify-content: center;
+    vertical-align: top;
+    border: 1px solid var(--at-outline);
+    border-radius: 9999px;
+    background-color: var(--at-card);
+    color: var(--muted-foreground);
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  /* Status pills: fully rounded, soft tint, coloured text. */
+  .at-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .at-pill-success { background-color: color-mix(in oklab, var(--at-success) 14%, transparent); color: var(--at-success-text); }
+  .at-pill-info { background-color: color-mix(in oklab, var(--at-info) 13%, transparent); color: var(--at-info); }
+  .at-pill-warning { background-color: color-mix(in oklab, var(--at-warning) 16%, transparent); color: var(--at-warning-text); }
+  .at-pill-danger { background-color: color-mix(in oklab, var(--destructive) 12%, transparent); color: var(--at-danger-text); }
+  .at-pill-neutral { background-color: var(--at-card); box-shadow: inset 0 0 0 1px var(--at-outline); color: var(--foreground); }
+  .at-pill-muted { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); color: var(--foreground); }
+
+  .at-text-success { color: var(--at-success-text); }
+  .at-text-warning { color: var(--at-warning-text); }
+  .at-text-danger { color: var(--at-danger-text); }
+}

@@ -76,6 +76,7 @@ import {
   STALE_OPENCODE_PROVIDERS,
 } from "./opencode";
 import { readFile } from "node:fs/promises";
+import { createSkillsHubService, skillsRpcContract, SKILLS_CLI_USAGE } from "./skills-hub-service.ts";
 import { homedir, hostname as osHostname } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -216,6 +217,7 @@ const planSchema = z.object({
 });
 
 export const rpcContract = defineRpcContract({
+  ...skillsRpcContract,
   overview: { input: z.null(), output: overviewSchema },
   rescan: { input: z.object({ hostId: z.string().nullable() }), output: overviewSchema },
   adopt: {
@@ -522,6 +524,24 @@ export default async function plugin(bb: BbPluginApi) {
         t("Включено — в домах CLI лежит весь канон, даже если имя уже приходит из плагина-маркетплейса: так навык виден и в CLI мимо BB. Цена — в сессиях BB такое имя показано дважды. Выключите, чтобы список навыков в BB был без двойников."),
       default: true,
     },
+    skillsClassifierProvider: {
+      type: "string",
+      label: t("Навыки: провайдер классификатора"),
+      description: t("Провайдер BB для скрытого треда, который раскладывает новые навыки по категориям."),
+      default: "claude-code",
+    },
+    skillsClassifierModel: {
+      type: "string",
+      label: t("Навыки: модель классификатора"),
+      description: t("Модель для раскладки навыков по категориям. Подходит быстрая и недорогая."),
+      default: "claude-haiku-5-5",
+    },
+    skillsClassifierProjectId: {
+      type: "string",
+      label: t("Навыки: проект для треда классификатора"),
+      description: t("ID проекта BB. Пусто — личный проект."),
+      default: "",
+    },
     skillsSyncRemote: {
       type: "string",
       label: t("Скиллы: git-remote канона"),
@@ -535,6 +555,21 @@ export default async function plugin(bb: BbPluginApi) {
   //новый ключ, вписанный в интерфейсе, начинал работать только после перезагрузки.
   const readConfig = () => settings.get();
   const host = bb.hosts.experimental_client({ contract: hostContract });
+  const skillsHub = createSkillsHubService(bb, host as unknown as Parameters<typeof createSkillsHubService>[1], async () => {
+    const config = await readConfig();
+    return {
+      classifierProvider: config.skillsClassifierProvider.trim() || "claude-code",
+      classifierModel: config.skillsClassifierModel.trim() || "claude-haiku-5-5",
+      classifierProjectId: config.skillsClassifierProjectId,
+    };
+  });
+  // Only the classifier's hidden threads get the category tools; every other
+  // thread keeps this plugin's skill as before.
+  bb.agents.configure((context) => {
+    const classifier = skillsHub.configureThread(context.pluginMetadata);
+    if (classifier !== null) return { tools: classifier.tools, skills: [], instructions: classifier.instructions };
+    return { tools: [], skills: ["agent-tools"] };
+  });
 
   // ---------------------------------------------------------------- storage
   const readCatalog = async (): Promise<CatalogEntry[]> =>
@@ -2056,6 +2091,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   // ------------------------------------------------------------------ rpc
   bb.rpc.register(rpcContract, {
+    ...skillsHub.handlers,
     overview: () => overview(),
     rescan: async ({ hostId }) => {
       await Promise.all([scanAll(hostId), refreshMetaMcp()]);
@@ -2274,19 +2310,9 @@ export default async function plugin(bb: BbPluginApi) {
       const result = await runSync(null, false, false);
       bb.log.info(`auto sync: applied ${result.applied}, failed ${result.failed}`);
     }
-    const skillsAuto = (await readConfig()).skillsFanOutAuto;
-    if (skillsAuto) {
-      const result = await runSkillsRollout(null, false);
-      if (result.promoted > 0 || result.applied > 0 || result.promoteFailed > 0 || result.failed > 0) {
-        bb.log.info(
-          `skills rollout: canon ${result.promoted}/${result.promoteFailed}, sync ${result.synced}/${result.syncFailed}, homes ${result.applied}/${result.failed}`,
-        );
-      }
-      for (const line of result.errors) bb.log.info(`skills rollout: ${line}`);
-    } else if ((await readConfig()).skillsSyncRemote.trim() !== "") {
-      const sync = await runSkillsCanonSync(null);
-      for (const line of sync.errors) bb.log.info(`skills sync failed: ${line}`);
-    }
+    // Skills live on the hub now: count leftovers on the machines and place new skills.
+    await skillsHub.refreshMachines().catch((cause: unknown) => bb.log.warn(`skills machines: ${String(cause)}`));
+    skillsHub.kick();
     await publish();
   });
 
@@ -2309,8 +2335,7 @@ export default async function plugin(bb: BbPluginApi) {
     t("  bb tools auto on|off            Автосинхронизация раз в час"),
     t("  bb tools gateway-add <файл> --host <id>  Добавить серверы за шлюз"),
     t("  bb tools lang [ru|en]           Язык интерфейса и вывода"),
-    t("  bb tools skills [--host <id>]            Скиллы вне канона"),
-    t("  bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]  Скилл за канон"),
+    ...SKILLS_CLI_USAGE.map((line) => t(line)),
   ].join("\n");
 
   function renderStatus(current: Overview): string {
@@ -2351,6 +2376,15 @@ export default async function plugin(bb: BbPluginApi) {
       );
     }
     return lines.join("\n");
+  }
+
+  const LEGACY_SKILL_COMMANDS = new Set(["skills-adopt", "skills-fanout", "skills-backups", "skills-restore", "skills-sync"]);
+  async function callerHost(threadId: string | undefined): Promise<string | null> {
+    if (threadId === undefined) return null;
+    const found = (await bb.sdk.threads.get({ threadId }).catch(() => null)) as
+      | { environment?: { hostId?: string }; thread?: { environment?: { hostId?: string } } }
+      | null;
+    return found?.environment?.hostId ?? found?.thread?.environment?.hostId ?? null;
   }
 
   bb.cli.register({
@@ -2410,6 +2444,27 @@ export default async function plugin(bb: BbPluginApi) {
         summary: t("Язык интерфейса и вывода: ru или en"),
         usage: "bb tools lang [ru|en]",
       },
+      { name: "skills-hub", summary: t("Навыки на хабе: git, проблемы, копии на машинах"), usage: "bb tools skills-hub [--json]" },
+      { name: "skills-tree", summary: t("Дерево категорий навыков"), usage: "bb tools skills-tree [--skills] [--json]" },
+      {
+        name: "skills-publish",
+        summary: t("Опубликовать навык на хаб"),
+        usage: t("bb tools skills-publish <папка> [--host <машина>] [--dry-run]"),
+      },
+      {
+        name: "skills-pull",
+        summary: t("Взять навык с хаба в работу"),
+        usage: t("bb tools skills-pull <навык> [--to <папка>] [--host <машина>]"),
+      },
+      { name: "skills-move", summary: t("Перенести навык в категорию вручную"), usage: t('bb tools skills-move <навык> "Раздел/Подраздел"') },
+      { name: "skills-classify", summary: t("Разложить навыки без категории"), usage: "bb tools skills-classify [--wait]" },
+      { name: "skills-remove", summary: t("Убрать навык с хаба в архив"), usage: t("bb tools skills-remove <навык>") },
+      { name: "skills-machines", summary: t("Копии навыков на машинах"), usage: "bb tools skills-machines [--json]" },
+      {
+        name: "skills-cleanup",
+        summary: t("Убрать копии навыков с машины в архив"),
+        usage: t("bb tools skills-cleanup --host <машина> [--dry-run]"),
+      },
       {
         name: "skills",
         summary: t("Скиллы вне канона, с --canon — сам канон по машинам"),
@@ -2466,7 +2521,7 @@ export default async function plugin(bb: BbPluginApi) {
         usage: "bb tools opencode-set-default <modelId>",
       },
     ],
-    async run(argv) {
+    async run(argv, ctx) {
       const json = argv.includes("--json");
       const dryRun = argv.includes("--dry-run");
       const withDifferent = argv.includes("--with-different");
@@ -2483,6 +2538,18 @@ export default async function plugin(bb: BbPluginApi) {
         stdout: json ? JSON.stringify(value, null, 2) : text,
       });
 
+      if (command !== undefined && command.startsWith("skills-") && !LEGACY_SKILL_COMMANDS.has(command)) {
+        const callerHostId = await callerHost(ctx?.threadId);
+        const cwd = ctx?.cwd;
+        const skillArgs = argv
+          .slice(argv.indexOf(command) + 1)
+          .map((arg, index, list) => {
+            const isPath = command === "skills-publish" && !arg.startsWith("--") && list[index - 1] !== "--host";
+            return isPath && cwd && !path.isAbsolute(arg) && !arg.startsWith("~") ? path.join(cwd, arg) : arg;
+          });
+        const text = await skillsHub.cli(command, skillArgs, callerHostId);
+        if (text !== null) return { exitCode: 0, stdout: text };
+      }
       switch (command) {
         case undefined:
         case "help":

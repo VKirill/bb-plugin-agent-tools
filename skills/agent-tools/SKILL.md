@@ -1,15 +1,15 @@
 ---
 name: agent-tools
-description: Agent tooling across every BB machine — MCP servers (what is connected where, catalogue adoption, MetaMCP gateways, synchronization) and skills (a single ~/.agents/skills canon, copies, duplicates, git sync). Use for questions such as “which MCP servers exist on the machines?”, “why is server X absent on this machine?”, “roll out MCP everywhere”, “where are skills stored?”, or “remove duplicate skills”. Russian triggers: «какие MCP есть на машинах», «раскатай MCP везде», «где лежат скиллы», «убери дубли скиллов». Do not use to configure MCP servers themselves or invoke their tools.
+description: "Agent tooling across every BB machine. MCP servers: what is connected where, catalogue adoption, MetaMCP gateways, synchronization. Skills: the canon on the BB hub, publishing and taking skills out for editing, the category tree, skill copies left on machines. Use for questions such as which MCP servers are on the machines, why server X is missing on a machine, roll out MCP everywhere, where skills live, publish or edit a skill, which category a skill is in, remove duplicate skills. Russian triggers: какие MCP есть на машинах, раскатай MCP везде, где лежат скиллы, опубликуй навык, категории навыков, убери дубли скиллов. Not for configuring an MCP server itself or calling its tools."
 ---
 
 # Agent Tools
 
-The plugin maintains one MCP-server list (the catalogue) and one skill canon,
-then brings BB machines into line with them. It reads the installed CLI-agent
-configuration on every machine: Claude Code (`~/.claude.json`), Codex
-(`~/.codex/config.toml`), OpenCode, Cursor, Antigravity, Gemini, Qwen, Kimi,
-Grok, Crush, and the local MetaMCP gateway (`~/.agents/metamcp.mcp.json`).
+The plugin keeps one MCP-server list (the catalogue) and brings BB machines
+into line with it, and it manages the skills canon on the BB hub. It reads the
+CLI-agent configuration on every machine: Claude Code (`~/.claude.json`),
+Codex (`~/.codex/config.toml`), OpenCode, Cursor, Antigravity, Gemini, Qwen,
+Kimi, Grok, Crush, and the local MetaMCP gateway (`~/.agents/metamcp.mcp.json`).
 
 ## Commands
 
@@ -25,13 +25,21 @@ bb tools sync              # add missing servers to every machine
 bb tools sync --with-different   # also overwrite differing servers
 bb tools auto on|off       # hourly automatic synchronization
 bb tools gateway-add <file.json> --host <id>   # add your MCP server behind the MetaMCP gateway
-bb tools skills [--host <id>]                  # skills outside the canon
-bb tools skills-adopt <folder> <name> --host <id> [--link|--delete|--take|--unlink]
-bb tools skills-sync [--host <id>]             # sync the skill canon to the git remote in settings
+
+bb tools skills-hub                       # skills on the hub: git, problems, copies left on machines
+bb tools skills-tree [--skills]           # the category tree (with skill names)
+bb tools skills-publish <folder> [--dry-run]    # publish a skill folder to the hub (checks, commits, pushes)
+bb tools skills-pull <skill> [--to <folder>]    # copy a hub skill into ~/skill-drafts for editing
+bb tools skills-move <skill> "Section/Subsection"   # place a skill by hand
+bb tools skills-classify [--wait]         # sort skills that have no category
+bb tools skills-remove <skill>            # move a skill from the hub to the archive
+bb tools skills-machines                  # skill copies still on machines
+bb tools skills-cleanup --host <machine> [--dry-run]   # move them into a dated backup
 ```
 
 Every command accepts `--json`; `scan`, `plan`, and `sync` also accept
-`--host <id>` to operate on one machine.
+`--host <id>` to operate on one machine. Skill commands run on the machine of
+the calling thread unless `--host` names another one.
 
 ## MCP rules
 
@@ -48,23 +56,23 @@ Every command accepts `--json`; `scan`, `plan`, and `sync` also accept
 
 ## Skill rules
 
-- The canon is `~/.agents/skills`; Codex, Cursor, and OpenCode read it
-  directly.
-- BB sessions read skills from the server (`experimental_dataDir/skills`).
-  Fan-out puts real directories there. Copies on a Mini or MacBook do not
-  replace that root.
-- `~/.claude/skills` is a second live home: Claude Code reads only it, so it
-  contains symlinks to the canon. Qwen also uses symlinks in `~/.qwen/skills`; BB receives real mirror
-  directories in `~/.bb/skills` without rewriting its own registry.
-- In folders that read the canon directly, a copy is simply removed because a
-  symlink is unnecessary. `~/.gemini/config/skills` remains empty: both copies
-  and links are removed.
-- A real skill copy in two homes creates a duplicate in the list (verified in
-  Codex: one name from two roots appears twice); a symlink does not.
-- Differing copies are resolved by the modification dates of all files in the
-  skill folder; the losing copy goes to `~/.agents/skills-backups`. Equal dates
-  require a manual decision.
-- A link in `~/.bb/skills` is marked “BB registry duplicate”: BB injects that
-  skill into its own sessions, so it appears twice within BB. Whether to remove
-  it depends on whether that CLI is run outside BB; the plugin does not decide
-  automatically.
+- The canon is the hub's BB data dir, `~/.bb/skills` on the BB server. BB
+  registers user skills from there and copies them into every session of every
+  provider on every machine. Do not create skills in `~/.agents/skills`,
+  `~/.claude/skills` or a machine's `~/.bb/skills`: BB does not read them, and
+  CLIs that do read them show the same skill twice.
+- To change a skill: `bb tools skills-pull <skill>`, edit the copy in
+  `~/skill-drafts/<skill>`, then `bb tools skills-publish ~/skill-drafts/<skill>`.
+  A new skill is written in any folder and published the same way.
+- Publishing refuses what BB would skip: unparseable frontmatter (quote a
+  description that contains `: `), a name that is not lowercase letters, digits
+  and single hyphens, a description over 1024 characters, more than 10 MB or
+  1000 files. Inside a skill, refer to its own files with relative paths: the
+  session copy does not live in `~/.agents/skills`.
+- Every publish and removal is committed to the skills git repository on the
+  hub and pushed. A replaced or removed folder also goes to
+  `~/.agents/skills-backups` on the hub.
+- Categories (section → subsection) belong to the plugin, not to the skill
+  files. A new skill is placed next to its siblings with the same name prefix,
+  otherwise by a small model in a hidden thread; unsure answers wait in review.
+  A placed skill is never moved automatically.

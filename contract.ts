@@ -450,6 +450,41 @@ export const hostContract = defineRpcContract({
       archiveBase64: z.string().max(12_000_000).nullable(),
     }),
   },
+  /** Pack a skill folder (with SKILL.md) on this machine to publish it to the hub. */
+  skill_pack: {
+    input: z.object({ path: z.string().min(1).max(500) }),
+    output: z.object({
+      ok: z.boolean(),
+      name: z.string().max(200).nullable(),
+      archiveBase64: z.string().max(12_000_000).nullable(),
+      error: z.string().max(400).nullable(),
+    }),
+  },
+  /** Unpack a hub skill into a drafts folder on this machine. */
+  skill_unpack: {
+    input: z.object({
+      name: z.string().min(1).max(120),
+      archiveBase64: z.string().max(12_000_000),
+      target: z.string().max(500).nullable(),
+    }),
+    output: z.object({ ok: z.boolean(), path: z.string().max(600).nullable(), error: z.string().max(400).nullable() }),
+  },
+  /** How many skills each CLI skill folder on this machine still holds. */
+  skill_homes_count: {
+    input: z.object({}),
+    output: z.object({
+      homes: z.array(z.object({ id: z.string(), path: z.string(), skills: z.number(), links: z.number() })).max(32),
+    }),
+  },
+  /** Move every skill out of the CLI skill folders into a dated backup. */
+  skill_homes_cleanup: {
+    input: z.object({ dryRun: z.boolean() }),
+    output: z.object({
+      backup: z.string().max(600).nullable(),
+      moved: z.array(z.object({ id: z.string(), count: z.number() })).max(32),
+      errors: z.array(z.string().max(400)).max(200),
+    }),
+  },
   opencode_scan: { input: z.object({}), output: openCodeScanSchema },
   opencode_apply: { input: openCodeApplyInputSchema, output: openCodeApplyResultSchema },
   plugins_scan: { input: z.object({}), output: hostCliPluginsScanSchema },

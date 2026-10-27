@@ -2,6 +2,7 @@
 // config and writes the ones the catalogue asks for. Writes are atomic
 // (temp file + rename) and always leave a timestamped backup behind.
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
+import { cleanupSkillHomes, countSkillHomes, packSkillDir, unpackSkill } from "./host-skills.ts";
 import { readFile, writeFile, rename, stat, chmod, mkdir, readdir, unlink, copyFile, cp, symlink, lstat, readlink, realpath, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
@@ -1198,6 +1199,23 @@ export default experimental_defineHostEntry({
         }
         return { results, backups };
       },
+
+      skill_pack: async ({ path: dir }) => {
+        const tarBin = await findBin(["tar"]);
+        if (tarBin === null) return { ok: false, name: null, archiveBase64: null, error: "tar not found" };
+        return packSkillDir(dir, tarBin);
+      },
+
+      skill_unpack: async ({ name, archiveBase64, target }) => {
+        const tarBin = await findBin(["tar"]);
+        if (tarBin === null) return { ok: false, path: null, error: "tar not found" };
+        const result = await unpackSkill(name, archiveBase64, target, tarBin);
+        return { ok: result.ok, path: result.path, error: result.error };
+      },
+
+      skill_homes_count: async () => ({ homes: await countSkillHomes() }),
+
+      skill_homes_cleanup: async ({ dryRun }) => cleanupSkillHomes(dryRun),
 
       opencode_scan: async () => scanOpenCode(),
 
