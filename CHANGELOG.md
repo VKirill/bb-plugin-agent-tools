@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.7
+
+- Windows: синк канона навыков берёт настоящий `Git\mingw64\bin\git.exe` вместо лаунчера `Git\cmd\git.exe`. В фоновом процессе хоста лаунчер терял вывод: `remote get-url` возвращал пустую строку, и синк падал на «remote origin already exists».
+- Если `remote add origin` отвечает «already exists», синк переходит к `remote set-url`, а не останавливается.
+
 ## 0.2.6
 
 - Поддержка Windows-машин. Раньше плагин видел там только часть картины: Claude Code числился «не установленным», хотя `claude.exe` лежал в `~/.local/bin`.

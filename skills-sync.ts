@@ -4,7 +4,7 @@ import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFil
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { binCandidates } from "./platform.ts";
+import { binCandidates, gitLauncherTarget } from "./platform.ts";
 import { clipErrorText, formatSkillsSyncError, gitBinSearchDirs, parseUntrackedOverwriteNames } from "./i18n.ts";
 import { SKILL_JUNK_DIRS } from "./skill-tree.ts";
 
@@ -135,8 +135,15 @@ export async function syncSkillsCanon(
         .then((result) => result.stdout.trim())
         .catch(() => "");
       if (origin !== remote) {
-        if (origin === "") await git(gitBin, ["-C", dir, "remote", "add", "origin", remote]);
-        else await git(gitBin, ["-C", dir, "remote", "set-url", "origin", remote]);
+        // An empty get-url is not proof that origin is missing (a git that lost
+        // its stdout reads the same), so a refused add falls back to set-url.
+        if (origin === "") {
+          await git(gitBin, ["-C", dir, "remote", "add", "origin", remote]).catch(async (cause) => {
+            const stderr = String((cause as { stderr?: unknown }).stderr ?? cause);
+            if (!/already exists/i.test(stderr)) throw cause;
+            await git(gitBin, ["-C", dir, "remote", "set-url", "origin", remote]);
+          });
+        } else await git(gitBin, ["-C", dir, "remote", "set-url", "origin", remote]);
       }
       try {
         await git(gitBin, ["-C", dir, "pull", "--rebase", "--autostash"]);
@@ -245,7 +252,12 @@ export async function resolveGitBin(home = os.homedir()): Promise<string | null>
       const candidate = path.join(dir, name);
       try {
         const info = await stat(candidate);
-        if (info.isFile() || info.isSymbolicLink()) return candidate;
+        if (!info.isFile() && !info.isSymbolicLink()) continue;
+        // Git for Windows' cmd\git.exe launcher loses stdout in a console-less
+        // host worker (get-url comes back empty); the real binary does not.
+        const real = gitLauncherTarget(candidate);
+        if (real !== null && (await stat(real).then((item) => item.isFile(), () => false))) return real;
+        return candidate;
       } catch {
         // keep looking
       }

@@ -24,6 +24,17 @@ export function binCandidates(
   return [...extensions.map((ext) => name + ext), name];
 }
 
+/**
+ * Git for Windows puts a launcher in `Git\cmd\git.exe`; the real binary sits in
+ * `Git\mingw64\bin\git.exe`. Returns that real path for a launcher, else null.
+ */
+export function gitLauncherTarget(gitPath: string): string | null {
+  const match = /^(.*[\\/])cmd([\\/])git\.exe$/i.exec(gitPath);
+  if (match === null) return null;
+  const [, root, sep] = match;
+  return `${root}mingw64${sep}bin${sep}git.exe`;
+}
+
 /** `C:\dir`, `C:/dir` or a UNC path `\\host\share`. */
 export function isWindowsAbsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");

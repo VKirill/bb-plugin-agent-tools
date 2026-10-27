@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { binCandidates, isWindowsAbsPath, needsCmdWrapper, unwrapShell, wrapForWindows } from "../platform.ts";
+import { binCandidates, gitLauncherTarget, isWindowsAbsPath, needsCmdWrapper, unwrapShell, wrapForWindows } from "../platform.ts";
 import { classifyLocal, classifyRole, sameServer } from "../normalize.ts";
 import { gitBinSearchDirs } from "../i18n.ts";
 import type { McpServer } from "../contract.ts";
@@ -96,4 +96,14 @@ test("gitBinSearchDirs adds Windows install dirs for the ';' delimiter", () => {
   assert.ok(dirs.includes("C:\\Program Files\\Git\\cmd"));
   assert.ok(dirs.includes("C:\\Users\\x\\.local\\bin"));
   assert.ok(!dirs.includes("/usr/bin"));
+});
+
+test("gitLauncherTarget maps the Git for Windows launcher to the real binary", () => {
+  assert.equal(
+    gitLauncherTarget("C:\\Program Files\\Git\\cmd\\git.exe"),
+    "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
+  );
+  assert.equal(gitLauncherTarget("C:/Git/cmd/GIT.EXE"), "C:/Git/mingw64/bin/git.exe");
+  assert.equal(gitLauncherTarget("C:\\Program Files\\Git\\mingw64\\bin\\git.exe"), null);
+  assert.equal(gitLauncherTarget("/usr/bin/git"), null);
 });
