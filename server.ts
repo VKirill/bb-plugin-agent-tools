@@ -536,6 +536,12 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Модель для раскладки навыков по категориям. Подходит быстрая и недорогая."),
       default: "claude-haiku-5-5",
     },
+    skillsClassifierAuto: {
+      type: "boolean",
+      label: t("Навыки: раскладывать новые автоматически"),
+      description: t("Раз в час новые навыки без категории уходят классификатору. Выключено — только по кнопке «Разложить новые»."),
+      default: true,
+    },
     skillsClassifierProjectId: {
       type: "string",
       label: t("Навыки: проект для треда классификатора"),
@@ -2312,7 +2318,7 @@ export default async function plugin(bb: BbPluginApi) {
     }
     // Skills live on the hub now: count leftovers on the machines and place new skills.
     await skillsHub.refreshMachines().catch((cause: unknown) => bb.log.warn(`skills machines: ${String(cause)}`));
-    skillsHub.kick();
+    if ((await readConfig()).skillsClassifierAuto) skillsHub.kick();
     await publish();
   });
 

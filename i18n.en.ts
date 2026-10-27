@@ -726,4 +726,10 @@ export const EN: Record<string, string> = {
   "  bb tools skills-remove <навык>              Убрать навык с хаба в архив": "  bb tools skills-remove <skill>              Move a skill from the hub to the archive",
   "  bb tools skills-machines                    Копии навыков на машинах": "  bb tools skills-machines                    Skill copies on machines",
   "  bb tools skills-cleanup --host <машина> [--dry-run]  Убрать копии с машины в архив": "  bb tools skills-cleanup --host <machine> [--dry-run]  Move skill copies off a machine",
+  "Свернуть все": "Collapse all",
+  "Развернуть все": "Expand all",
+  "ещё пустых: {0}": "{0} more empty",
+  "Показывать пустые категории": "Show empty categories",
+  "Навыки: раскладывать новые автоматически": "Skills: sort new ones automatically",
+  "Раз в час новые навыки без категории уходят классификатору. Выключено — только по кнопке «Разложить новые».": "Every hour, new skills without a category go to the classifier. Off: only with the “Sort new skills” button.",
 };

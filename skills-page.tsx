@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
 import type { SkillsHub, SkillsHubDetail } from "./skills-hub-service";
-import { t, tp, plural } from "./i18n";
+import { t, tp, plural, getLang } from "./i18n";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -63,43 +63,58 @@ function formatDate(ms: number): string {
   return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function NavRow({
+/** Category names follow the interface language; the model writes both. */
+function label(item: { title: string; titleEn: string }): string {
+  return getLang() === "en" ? item.titleEn || item.title : item.title;
+}
+
+const SECTION_ICONS: Array<[RegExp, string]> = [
+  [/^development|разработ/u, "Code"],
+  [/^bb|агент/u, "Bot"],
+  [/^marketing|маркет/u, "Target"],
+  [/^writing|текст/u, "Edit"],
+  [/^design|дизайн/u, "Palette"],
+  [/3d|blender/u, "Layers"],
+  [/^video|видео/u, "Play"],
+  [/^business|бизнес|документ/u, "FileText"],
+  [/^research|исслед/u, "Search"],
+];
+
+function sectionIcon(id: string): string {
+  return SECTION_ICONS.find(([pattern]) => pattern.test(id))?.[1] ?? "Folder";
+}
+
+function ServiceRow({
+  icon,
   selected,
   onClick,
-  label,
+  label: text,
   count,
   tone,
-  indent,
-  muted,
 }: {
+  icon: string;
   selected: boolean;
   onClick: () => void;
-  label: ReactNode;
-  count?: number;
+  label: string;
+  count: number;
   tone?: "warning" | "danger";
-  indent?: boolean;
-  muted?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-current={selected ? "page" : undefined}
-      className={`at-nav-item flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-sm ${indent ? "pl-6" : "font-medium"} ${muted ? "text-muted-foreground" : ""}`}
+      className="at-nav-item flex w-full min-w-0 items-center gap-2.5 px-2 py-1.5 text-left text-sm"
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count === undefined || count === 0 ? null : (
-        <span
-          className={
-            tone === "danger"
-              ? "at-pill at-pill-danger"
-              : tone === "warning"
-                ? "at-pill at-pill-warning"
-                : "font-mono text-xs tabular-nums text-muted-foreground"
-          }
-        >
-          {count}
-        </span>
+      <Icon
+        name={icon}
+        className={`size-4 shrink-0 ${tone === "danger" ? "at-text-danger" : tone === "warning" ? "at-text-warning" : "text-muted-foreground"}`}
+      />
+      <span className="min-w-0 flex-1 truncate">{text}</span>
+      {tone === undefined ? (
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">{count}</span>
+      ) : (
+        <span className={`at-pill ${tone === "danger" ? "at-pill-danger" : "at-pill-warning"}`}>{count}</span>
       )}
     </button>
   );
@@ -125,10 +140,10 @@ function CategoryPicker({
     >
       <option value="">{t("Выберите подраздел…")}</option>
       {tree.sections.map((section) => (
-        <optgroup key={section.id} label={section.title}>
+        <optgroup key={section.id} label={label(section)}>
           {section.subsections.map((sub) => (
             <option key={sub.id} value={sub.id}>
-              {sub.title}
+              {label(sub)}
             </option>
           ))}
         </optgroup>
@@ -229,6 +244,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
   }, [onAttention, reviewCount, problemCount, leftovers.length]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showEmpty, setShowEmpty] = useState(false);
   const toggle = (id: string) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -261,6 +277,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
   }, [skills, node, query]);
 
   const tree = hub?.tree ?? { sections: [] };
+  const allOpen = tree.sections.length > 0 && tree.sections.every((section) => expanded.has(section.id));
   const nodeSection = node.kind === "section" ? tree.sections.find((section) => section.id === node.id) : undefined;
   const nodeSubParent =
     node.kind === "sub" ? tree.sections.find((section) => section.subsections.some((sub) => sub.id === node.id)) : undefined;
@@ -278,14 +295,14 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
             : node.kind === "unplaced"
               ? t("Без категории")
               : nodeSub !== undefined && nodeSubParent !== undefined
-                ? `${nodeSubParent.title} → ${nodeSub.title}`
-                : (nodeSection?.title ?? "");
+                ? `${label(nodeSubParent)} → ${label(nodeSub)}`
+                : nodeSection !== undefined ? label(nodeSection) : "";
 
   const pathOf = (skill: HubSkillView): string | null => {
     if (skill.category === null) return null;
     const section = tree.sections.find((item) => item.id === skill.category?.sectionId);
     const sub = section?.subsections.find((item) => item.id === skill.category?.subsectionId);
-    return section && sub ? `${section.title} → ${sub.title}` : null;
+    return section && sub ? `${label(section)} → ${label(sub)}` : null;
   };
 
   const selectedRow = skills.find((skill) => skill.name === selected) ?? null;
@@ -416,7 +433,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
 
       <div className="flex min-h-[28rem] flex-col gap-3 lg:flex-row">
         {/* Category tree */}
-        <nav aria-label={t("Категории навыков")} className="at-panel shrink-0 lg:w-64">
+        <nav aria-label={t("Категории навыков")} className="at-panel shrink-0 lg:w-72">
           <div className="at-panel-head flex items-center gap-2">
             <h2 className="flex-1 text-sm font-medium">{t("Категории")}</h2>
             <Button
@@ -433,71 +450,114 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
               <Icon name="Plus" className="size-4" />
             </Button>
           </div>
-          <div className="at-panel-body max-h-[60vh] space-y-0.5 overflow-y-auto p-1.5 lg:max-h-none">
-            <NavRow selected={node.kind === "all" && query === ""} onClick={() => { setQuery(""); setNode({ kind: "all" }); }} label={t("Все")} count={skills.length} />
-            {reviewCount > 0 ? (
-              <NavRow selected={node.kind === "review"} onClick={() => { setQuery(""); setNode({ kind: "review" }); }} label={t("На проверке")} count={reviewCount} tone="warning" />
-            ) : null}
-            {problemCount > 0 || skills.some((skill) => skill.problems.length > 0) ? (
-              <NavRow
-                selected={node.kind === "problems"}
-                onClick={() => { setQuery(""); setNode({ kind: "problems" }); }}
-                label={t("С ошибками")}
-                count={problemCount > 0 ? problemCount : skills.filter((skill) => skill.problems.length > 0).length}
-                tone={problemCount > 0 ? "danger" : undefined}
-              />
-            ) : null}
-            {unplacedCount > 0 ? (
-              <NavRow selected={node.kind === "unplaced"} onClick={() => { setQuery(""); setNode({ kind: "unplaced" }); }} label={t("Без категории")} count={unplacedCount} />
-            ) : null}
-            <div className="my-1.5 border-t border-border/60" />
-            {tree.sections.map((section) => {
-              const open = expanded.has(section.id) || (node.kind === "sub" && nodeSubParent?.id === section.id);
-              return (
-                <div key={section.id}>
-                  <div className="flex items-center">
-                    <button
-                      type="button"
-                      aria-label={open ? t("Свернуть") : t("Развернуть")}
-                      aria-expanded={open}
-                      onClick={() => toggle(section.id)}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-muted-foreground hover:bg-muted"
-                    >
-                      <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3.5" />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <NavRow
-                        selected={node.kind === "section" && node.id === section.id && query === ""}
-                        onClick={() => {
-                          setQuery("");
-                          setNode({ kind: "section", id: section.id });
-                          setExpanded((current) => new Set(current).add(section.id));
-                        }}
-                        label={section.title}
-                        count={counts.get(section.id) ?? 0}
-                        muted={(counts.get(section.id) ?? 0) === 0}
-                      />
-                    </div>
-                  </div>
-                  {open
-                    ? section.subsections.map((sub) => (
-                        <NavRow
-                          key={sub.id}
-                          indent
-                          selected={node.kind === "sub" && node.id === sub.id && query === ""}
+          <div className="at-panel-body max-h-[60vh] overflow-y-auto p-1.5 lg:max-h-[78vh]">
+            <div className="space-y-0.5">
+              <ServiceRow icon="ListTodo" selected={node.kind === "all" && query === ""} onClick={() => { setQuery(""); setNode({ kind: "all" }); }} label={t("Все")} count={skills.length} />
+              {reviewCount > 0 ? (
+                <ServiceRow icon="AlertTriangle" selected={node.kind === "review"} onClick={() => { setQuery(""); setNode({ kind: "review" }); }} label={t("На проверке")} count={reviewCount} tone="warning" />
+              ) : null}
+              {skills.some((skill) => skill.problems.length > 0) ? (
+                <ServiceRow
+                  icon="AlertCircle"
+                  selected={node.kind === "problems"}
+                  onClick={() => { setQuery(""); setNode({ kind: "problems" }); }}
+                  label={t("С ошибками")}
+                  count={problemCount > 0 ? problemCount : skills.filter((skill) => skill.problems.length > 0).length}
+                  tone={problemCount > 0 ? "danger" : undefined}
+                />
+              ) : null}
+              {unplacedCount > 0 ? (
+                <ServiceRow icon="FolderUnknown" selected={node.kind === "unplaced"} onClick={() => { setQuery(""); setNode({ kind: "unplaced" }); }} label={t("Без категории")} count={unplacedCount} />
+              ) : null}
+            </div>
+
+            <div className="mt-3 flex items-center gap-2 px-2 pb-1.5">
+              <span className="flex-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t("Разделы")}</span>
+              <button
+                type="button"
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() =>
+                  setExpanded(allOpen ? new Set() : new Set(tree.sections.map((section) => section.id)))
+                }
+              >
+                {allOpen ? t("Свернуть все") : t("Развернуть все")}
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {tree.sections
+                .filter((section) => showEmpty || (counts.get(section.id) ?? 0) > 0)
+                .map((section) => {
+                  const open = expanded.has(section.id) || (node.kind === "sub" && nodeSubParent?.id === section.id);
+                  const subs = section.subsections.filter((sub) => showEmpty || (counts.get(sub.id) ?? 0) > 0);
+                  const hiddenEmpty = section.subsections.length - subs.length;
+                  const sectionSelected = node.kind === "section" && node.id === section.id && query === "";
+                  return (
+                    <div key={section.id}>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          aria-current={sectionSelected ? "page" : undefined}
                           onClick={() => {
                             setQuery("");
-                            setNode({ kind: "sub", id: sub.id });
+                            setNode({ kind: "section", id: section.id });
+                            setExpanded((current) => new Set(current).add(section.id));
                           }}
-                          label={sub.title}
-                          count={counts.get(sub.id) ?? 0}
-                          muted={(counts.get(sub.id) ?? 0) === 0}
-                        />
-                      ))
-                    : null}
-                </div>
-              );
-            })}
+                          className="at-nav-item flex min-w-0 flex-1 items-center gap-2.5 px-1.5 py-1.5 text-left"
+                        >
+                          <span className="at-tile flex size-7 shrink-0 items-center justify-center">
+                            <Icon name={sectionIcon(section.id)} className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1 text-sm font-medium leading-tight">{label(section)}</span>
+                          <span className="font-mono text-xs tabular-nums text-muted-foreground">{counts.get(section.id) ?? 0}</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={open ? t("Свернуть") : t("Развернуть")}
+                          aria-expanded={open}
+                          onClick={() => toggle(section.id)}
+                          className="flex size-7 shrink-0 items-center justify-center rounded-[8px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3.5" />
+                        </button>
+                      </div>
+                      {open ? (
+                        <ul className="mb-1.5 ml-[21px] mt-0.5 space-y-px border-l border-border pl-2">
+                          {subs.map((sub) => {
+                            const count = counts.get(sub.id) ?? 0;
+                            return (
+                              <li key={sub.id}>
+                                <button
+                                  type="button"
+                                  aria-current={node.kind === "sub" && node.id === sub.id && query === "" ? "page" : undefined}
+                                  onClick={() => {
+                                    setQuery("");
+                                    setNode({ kind: "sub", id: sub.id });
+                                  }}
+                                  className={`at-nav-item flex w-full min-w-0 items-start gap-2 px-2 py-1 text-left text-[13px] ${count === 0 ? "text-muted-foreground" : ""}`}
+                                >
+                                  <span className="min-w-0 flex-1 leading-snug">{label(sub)}</span>
+                                  <span className="pt-px font-mono text-[11px] tabular-nums text-muted-foreground">{count === 0 ? "—" : count}</span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                          {hiddenEmpty > 0 ? (
+                            <li className="px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {tp("ещё пустых: {0}", hiddenEmpty)}
+                            </li>
+                          ) : null}
+                        </ul>
+                      ) : null}
+                    </div>
+                  );
+                })}
+            </div>
+
+            <label className="mt-3 flex items-center gap-2 border-t border-border/60 px-2 pt-2.5 text-xs text-muted-foreground">
+              <input type="checkbox" checked={showEmpty} onChange={(event) => setShowEmpty(event.target.checked)} className="size-3.5" />
+              {t("Показывать пустые категории")}
+            </label>
           </div>
         </nav>
 
