@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.8
+
+- Windows: настоящая причина сбоя синка канона — в хост-процессе BB на Windows `promisify(execFile)` возвращал результат без `stdout`, поэтому каждое чтение git (`remote get-url`, `rev-parse`, `status`) давало `undefined`. Git и tar теперь запускаются через явную обёртку над колбэком `execFile`, которая всегда отдаёт `{ stdout, stderr }`.
+- Подмена `Git\cmd\git.exe` на `Git\mingw64\bin\git.exe` из 0.2.7 отменена: лаунчер был ни при чём.
+
 ## 0.2.7
 
 - Windows: синк канона навыков берёт настоящий `Git\mingw64\bin\git.exe` вместо лаунчера `Git\cmd\git.exe`. В фоновом процессе хоста лаунчер терял вывод: `remote get-url` возвращал пустую строку, и синк падал на «remote origin already exists».

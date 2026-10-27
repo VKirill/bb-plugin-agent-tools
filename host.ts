@@ -2,8 +2,6 @@
 // config and writes the ones the catalogue asks for. Writes are atomic
 // (temp file + rename) and always leave a timestamped backup behind.
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { readFile, writeFile, rename, stat, chmod, mkdir, readdir, unlink, copyFile, cp, symlink, lstat, readlink, realpath, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
@@ -16,7 +14,7 @@ import { fromDialect, mergeEntry, toDialect } from "./normalize.js";
 import { readServers, removeServer, upsertServer } from "./toml-mcp.js";
 import { locationPolicy, planFanOut, type FanOutOp, type FanOutState, type SkillActionMode } from "./skills.js";
 import { binCandidates, wrapForWindows } from "./platform.js";
-import { resolveGitBin, runGit, syncSkillsCanon } from "./skills-sync.js";
+import { execFileOutput, resolveGitBin, runGit, syncSkillsCanon } from "./skills-sync.js";
 import { copySkillTree, isSkillJunk, measureBbTree, SKILL_TAR_EXCLUDES } from "./skill-tree.js";
 import { probeServer } from "./probe.js";
 import { parseOpenCodeText, applyOpenCodeOps } from "./opencode.js";
@@ -25,7 +23,6 @@ import { formatSkillsSyncError, gitBinSearchDirs } from "./i18n.js";
 export { resolveGitBin, runGit, syncSkillsCanon };
 
 const BACKUP_PREFIX = ".bak-bb-mcp-";
-const execFileAsync = promisify(execFile);
 
 
 const FINGERPRINT_MAX_FILES = 500;
@@ -1106,7 +1103,7 @@ export default experimental_defineHostEntry({
         try {
           // Мусор (node_modules и т.п.) на сервер BB не везём: BB отказал бы всему скиллу.
           const excludes = SKILL_TAR_EXCLUDES.map((pattern) => `--exclude=${pattern}`);
-          const { stdout } = await execFileAsync(tarBin, ["czf", "-", ...excludes, "-C", expand(".agents/skills"), name], {
+          const { stdout } = await execFileOutput(tarBin, ["czf", "-", ...excludes, "-C", expand(".agents/skills"), name], {
             encoding: "buffer",
             maxBuffer: maxBytes + 1,
           });

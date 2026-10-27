@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { binCandidates, gitLauncherTarget, isWindowsAbsPath, needsCmdWrapper, unwrapShell, wrapForWindows } from "../platform.ts";
+import { binCandidates, isWindowsAbsPath, needsCmdWrapper, unwrapShell, wrapForWindows } from "../platform.ts";
+import { execFileOutput } from "../skills-sync.ts";
 import { classifyLocal, classifyRole, sameServer } from "../normalize.ts";
 import { gitBinSearchDirs } from "../i18n.ts";
 import type { McpServer } from "../contract.ts";
@@ -98,12 +99,16 @@ test("gitBinSearchDirs adds Windows install dirs for the ';' delimiter", () => {
   assert.ok(!dirs.includes("/usr/bin"));
 });
 
-test("gitLauncherTarget maps the Git for Windows launcher to the real binary", () => {
-  assert.equal(
-    gitLauncherTarget("C:\\Program Files\\Git\\cmd\\git.exe"),
-    "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
+test("execFileOutput resolves { stdout, stderr } and attaches them on failure", async () => {
+  const ok = await execFileOutput(process.execPath, ["-e", "process.stdout.write('out'); process.stderr.write('err')"]);
+  assert.deepEqual(ok, { stdout: "out", stderr: "err" });
+
+  const raw = await execFileOutput(process.execPath, ["-e", "process.stdout.write('bin')"], { encoding: "buffer" });
+  assert.ok(Buffer.isBuffer(raw.stdout));
+  assert.equal(raw.stdout.toString(), "bin");
+
+  await assert.rejects(
+    execFileOutput(process.execPath, ["-e", "process.stderr.write('boom'); process.exit(3)"]),
+    (cause: { stderr?: unknown; code?: unknown }) => cause.stderr === "boom" && cause.code === 3,
   );
-  assert.equal(gitLauncherTarget("C:/Git/cmd/GIT.EXE"), "C:/Git/mingw64/bin/git.exe");
-  assert.equal(gitLauncherTarget("C:\\Program Files\\Git\\mingw64\\bin\\git.exe"), null);
-  assert.equal(gitLauncherTarget("/usr/bin/git"), null);
 });

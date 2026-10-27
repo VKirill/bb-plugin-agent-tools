@@ -1,14 +1,40 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { binCandidates, gitLauncherTarget } from "./platform.ts";
+import { binCandidates } from "./platform.ts";
 import { clipErrorText, formatSkillsSyncError, gitBinSearchDirs, parseUntrackedOverwriteNames } from "./i18n.ts";
 import { SKILL_JUNK_DIRS } from "./skill-tree.ts";
 
-const execFileAsync = promisify(execFile);
+/**
+ * execFile as a promise of `{ stdout, stderr }`, built on the plain callback.
+ * `promisify(execFile)` depends on execFile's custom promisify hook; in the BB
+ * host worker on Windows it resolved without `stdout`, so every git read came
+ * back undefined. A failure carries `stdout`/`stderr` like promisify's does.
+ */
+export function execFileOutput(
+  bin: string,
+  args: readonly string[],
+  options: ExecFileOptions & { encoding: "buffer" },
+): Promise<{ stdout: Buffer; stderr: Buffer }>;
+export function execFileOutput(
+  bin: string,
+  args: readonly string[],
+  options?: ExecFileOptions,
+): Promise<{ stdout: string; stderr: string }>;
+export function execFileOutput(
+  bin: string,
+  args: readonly string[],
+  options: ExecFileOptions & { encoding?: string | null } = {},
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  return new Promise((resolve, reject) => {
+    execFile(bin, [...args], { encoding: "utf8", ...options } as ExecFileOptions, (error, stdout, stderr) => {
+      if (error !== null) reject(Object.assign(error, { stdout, stderr }));
+      else resolve({ stdout, stderr });
+    });
+  });
+}
 
 async function exists(target: string): Promise<boolean> {
   try {
@@ -44,7 +70,7 @@ export async function runGit(
   args: string[],
 ): Promise<{ stdout: string; stderr: string }> {
   // autocrlf=false keeps the shared canon byte-identical across platforms (Windows git defaults to true).
-  return execFileAsync(bin, ["-c", "core.autocrlf=false", ...args], {
+  return execFileOutput(bin, ["-c", "core.autocrlf=false", ...args], {
     maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   });
@@ -135,8 +161,8 @@ export async function syncSkillsCanon(
         .then((result) => result.stdout.trim())
         .catch(() => "");
       if (origin !== remote) {
-        // An empty get-url is not proof that origin is missing (a git that lost
-        // its stdout reads the same), so a refused add falls back to set-url.
+        // An empty get-url is not proof that origin is missing (a lost stdout
+        // reads the same), so a refused add falls back to set-url.
         if (origin === "") {
           await git(gitBin, ["-C", dir, "remote", "add", "origin", remote]).catch(async (cause) => {
             const stderr = String((cause as { stderr?: unknown }).stderr ?? cause);
@@ -252,12 +278,7 @@ export async function resolveGitBin(home = os.homedir()): Promise<string | null>
       const candidate = path.join(dir, name);
       try {
         const info = await stat(candidate);
-        if (!info.isFile() && !info.isSymbolicLink()) continue;
-        // Git for Windows' cmd\git.exe launcher loses stdout in a console-less
-        // host worker (get-url comes back empty); the real binary does not.
-        const real = gitLauncherTarget(candidate);
-        if (real !== null && (await stat(real).then((item) => item.isFile(), () => false))) return real;
-        return candidate;
+        if (info.isFile() || info.isSymbolicLink()) return candidate;
       } catch {
         // keep looking
       }
