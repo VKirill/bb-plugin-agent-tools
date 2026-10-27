@@ -42,6 +42,7 @@ test("count and clean CLI skill folders, keeping what the CLI owns", async () =>
   assert.equal(existsSync(path.join(home, ".agents/skills/.git")), false);
   assert.deepEqual(readdirSync(path.join(done.backup as string, "agents")).sort(), [".git", "ru-text", "seo"]);
   assert.equal(existsSync(path.join(done.backup as string, "bb/edo/SKILL.md")), true);
+  assert.equal(existsSync(path.join(home, ".agents/skills-on-hub")), true);
 });
 
 test("pack a draft and unpack it into drafts, keeping the previous copy", async () => {

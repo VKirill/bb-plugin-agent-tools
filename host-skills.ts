@@ -25,6 +25,8 @@ export const MACHINE_SKILL_HOMES = [
 ] as const;
 
 export const DRAFTS_DIR = "skill-drafts";
+/** Marker file in ~/.agents: this machine keeps no skill copies. */
+export const HUB_MARKER = "skills-on-hub";
 
 export function expandHome(value: string, home = os.homedir()): string {
   if (value === "~") return home;
@@ -160,6 +162,15 @@ export async function cleanupSkillHomes(dryRun: boolean, home = os.homedir()): P
         errors.push(`${location.path}/.git: ${cause instanceof Error ? cause.message.slice(0, 200) : String(cause)}`);
       });
     }
+  }
+  if (!dryRun) {
+    // Tells installers (Lane Stack and others) to publish skills to the hub
+    // instead of copying them back into the CLI folders.
+    await mkdir(path.join(home, ".agents"), { recursive: true });
+    await writeFile(
+      path.join(home, ".agents", HUB_MARKER),
+      "Skills on this machine live on the BB hub. Installers: publish with `bb tools skills-publish <folder>` instead of copying into ~/.agents/skills or ~/.claude/skills.\n",
+    ).catch((cause: unknown) => errors.push(`${HUB_MARKER}: ${String(cause)}`));
   }
   if (!dryRun && moved.length > 0) {
     await writeFile(

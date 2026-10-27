@@ -1,6 +1,6 @@
 # Agent Tools for BB
 
-Agent Tools is a BB plugin for comparing MCP servers, CLI plugins, OpenCode providers, and agent skills across connected machines. It keeps an editable MCP catalogue and a skills canon, with explicit operations to sync changes.
+Agent Tools is a BB plugin for agent skills and MCP servers across connected machines. Skills live on the BB hub (the server's `~/.bb/skills`, a git working copy), which BB hands to every session: the plugin sorts them into a two-level category tree (a small model in a hidden thread places new ones), checks them against BB's rules, publishes and takes them out for editing with git history, and clears skill copies left on machines. For MCP servers, CLI plugins and OpenCode providers it keeps an editable catalogue and syncs machines to it.
 
 ![Agent Tools MCP catalogue](screenshots/servers.png)
 

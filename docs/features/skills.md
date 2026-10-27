@@ -19,6 +19,11 @@ sources:
   - skill-tree.ts
 ---
 # Agent skill canon and rollout
+> **Superseded in 0.2.9.** The skills canon moved to the BB hub. The current design is in `hub-skills.ts`
+> (canon, git, publish), `categories.ts` and `classifier.ts` (category tree and the hidden classifier thread),
+> `host-skills.ts` (drafts and cleaning machine copies) and `skills-page.tsx` (the Skills section). The
+> machine-canon fan-out described below still exists in code but is no longer run by the sweep or shown in the UI.
+
 The skills feature compares skill folders on each machine against `~/.agents/skills`, then plans promotions, Git synchronization, CLI-home links or mirrors, and snapshots (`host.ts:374-435`, `server.ts:1538-1569`).
 
 ## Purpose
