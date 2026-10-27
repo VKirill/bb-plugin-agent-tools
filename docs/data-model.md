@@ -2,7 +2,7 @@
 title: Agent Tools data model
 type: data-model
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-27
 status: active
 confidence: medium
 tags: [data-model, storage, files]
@@ -19,6 +19,10 @@ sources:
   - i18n.ts
   - agents.ts
   - normalize.ts
+  - skills-hub-service.ts
+  - categories.ts
+  - classifier.ts
+  - hub-skills.ts
 ---
 # Agent Tools data model
 The plugin stores its catalogue, preferences, probe results, and per-host scan snapshots in BB key-value storage; machine-owned configs and skill archives remain files on their host (`server.ts:522-598`, `host.ts:435-498`).
@@ -39,7 +43,58 @@ erDiagram
 
 The diagram's `OCCURRENCE` is computed from scans, not a persisted collection; catalogue entries and per-host scan families are the persisted inputs (`contract.ts:441-480`, `server.ts:436-463`, `server.ts:601-628`, `host.ts:521-537`).
 
+### Hub skill categories
+
+```mermaid
+erDiagram
+  HUB_SKILL ||--o| SKILL_ASSIGNMENT : "has category"
+  HUB_SKILL ||--o| SKILL_REVIEW : "may await review"
+  SKILL_TREE ||--o{ SKILL_ASSIGNMENT : "contains path"
+  SKILL_TREE ||--o{ SKILL_REVIEW : "proposed path"
+  CLASSIFIER_STATE ||--o{ HUB_SKILL : "classifies"
+  HOST ||--o| SKILL_MACHINES : "has home counts"
+```
+
+`HUB_SKILL` is a directory on the BB server, not a KV row. `SKILL_TREE`, `SKILL_ASSIGNMENT`, `SKILL_REVIEW`, and `CLASSIFIER_STATE` are values stored under separate BB KV keys; the ER links show the application relationships, not database foreign keys (`hub-skills.ts:8-12`, `skills-hub-service.ts:201-208`, `skills-hub-service.ts:229-260`).
+
 ## BB key-value collections
+
+### Hub skills, categories, and classifier state
+
+The hub library is `<experimental_dataDir>/skills`; the plugin computes each skill's description, byte/file counts, newest modification time, and validation problems by reading the folder (`skills-hub-service.ts:210-223`, `hub-skills.ts:80-105`). The category tree, assignments, review items, classifier state, and per-host homes summary are independent KV values, defaulting to a seeded tree or empty values when absent (`skills-hub-service.ts:201-208`, `skills-hub-service.ts:229-260`, `skills-hub-service.ts:390-410`).
+
+| Entity / key | Field or key | Meaning |
+|---|---|---|
+| `HUB_SKILL` / folder | `name` | Top-level directory name on the BB server; folder-derived listing skips hidden names and non-directories (`hub-skills.ts:95-105`). |
+| `HUB_SKILL` / folder | `description`, `bytes`, `files`, `mtime`, `problems` | Parsed description, measured bytes/files, newest file modification time in milliseconds, and BB validation findings computed on read (`hub-skills.ts:15-22`, `hub-skills.ts:80-92`). |
+| `skillTree` | `sections[]` | Category tree stored under the fixed KV key; each section has an ID, Russian/English titles, description and subsection list (`skills-hub-service.ts:202-208`, `categories.ts:7-20`). |
+| `skillTree` | `subsections[]` | Child category fields: ID, Russian/English titles and description; IDs are generated from normalized titles (`categories.ts:7-20`, `categories.ts:58-71`). |
+| `skillAssignments` | `skill` | Hub skill name; one current assignment is maintained per skill by upsert (`categories.ts:25-33`, `categories.ts:193-204`). |
+| `skillAssignments` | `sectionId`, `subsectionId` | IDs of the assigned path in `skillTree`; `locate` verifies the path when assembling the view (`categories.ts:25-33`, `categories.ts:96-104`, `skills-hub-service.ts:424-446`). |
+| `skillAssignments` | `source`, `confidence`, `reason`, `at` | Source is `manual`, `family`, or `model`; confidence and reason may be null; `at` is epoch milliseconds (`categories.ts:22-33`, `skills-hub-service.ts:58-73`). |
+| `skillReview` | `skill`, `section`, `subsection` | Hub skill name and proposed category labels held for a manual decision (`categories.ts:35-42`, `skills-hub-service.ts:74-82`). |
+| `skillReview` | `confidence`, `reason`, `at` | Nullable model confidence/reason and proposal time in epoch milliseconds (`categories.ts:35-42`). |
+| `skillClassifier` | `threadId`, `startedAt`, `count`, `running` | Hidden classifier thread ID or null, start time in epoch milliseconds, skills sent in that thread, and persisted run flag (`classifier.ts:37-43`). |
+| `skillClassifier` | `lastRunAt`, `lastError`, `lastPlaced` | Last completion time in epoch milliseconds or null, clipped error text or null, and placements in the last run (`classifier.ts:37-56`). |
+| `skillMachines` | `hostId`, `hostName`, `homes`, `error`, `at` | Connected host identity, measured skill-home counts/links, per-host error or null, and refresh time in epoch milliseconds (`skills-hub-service.ts:84-90`, `skills-hub-service.ts:390-410`). |
+
+The service reads category data together and serializes writes through a promise lock; category tree, assignments, and review are then persisted as three KV writes (`skills-hub-service.ts:229-256`). The UI and CLI can read the assembled hub view; service handlers write assignments, review, tree, and machine summaries (`skills-hub-service.ts:413-579`).
+
+The hub folder name is its directory key. Category IDs identify section/subsection nodes; assignment and review `skill` names identify their entries by application convention, while classifier state is the singleton value at `skillClassifier` and machine summaries use host IDs (`hub-skills.ts:95-105`, `categories.ts:58-71`, `categories.ts:193-204`, `skills-hub-service.ts:202-208`, `skills-hub-service.ts:390-410`).
+
+| Status-like field | From → to | Function and condition |
+|---|---|---|
+| `skillClassifier.running` | `false` → `true` | `SkillClassifier.runOnce` persists `running: true` at the start of a run (`classifier.ts:223-226`). |
+| `skillClassifier.running` | `true` → `false` | `runOnce` writes false after queue completion or after a caught classifier error (`classifier.ts:254-261`). |
+| `skillClassifier.running` | persisted `true` → `false` → active run | `createSkillsHubService` detects the stale flag at startup, clears it, then calls `classifier.run()` (`skills-hub-service.ts:335-343`). |
+| `skillReview` membership | unplaced → review | Low confidence or two unanswered model attempts store a review item (`classifier.ts:141-149`, `classifier.ts:285-300`). |
+| `skillReview` membership | review → assignment | `acceptReview` ensures its proposed path, writes a manual assignment, and removes the review item (`skills-hub-service.ts:474-492`). |
+| `skillAssignments.source` | absent → `family` | `placeByFamily` assigns when the sibling quorum agrees on one existing category (`classifier.ts:175-199`). |
+| `skillAssignments.source` | absent or automatic → `model` | `applyModelAssign` stores a validated model placement; existing manual placements are rejected before it runs (`classifier.ts:127-173`, `categories.ts:193-204`). |
+| `skillAssignments.source` | any source → `manual` | UI move and review acceptance write manual assignments (`skills-hub-service.ts:458-492`). |
+| `skillAssignments.source` | `manual` → automatic source | No transition: `upsertAssignment` preserves manual assignments when the next source is `family` or `model` (`categories.ts:193-204`). |
+
+Assignments and review entries for removed hub skills are pruned at the beginning of classification (`classifier.ts:228-238`, `categories.ts:217-221`). The plugin code has no retention or cleanup job for these KV values; removing a hub skill is separate and moves its folder into the hub-side backup archive (`hub-skills.ts:245-259`, `hub-skills.ts:347-357`).
 
 ### `catalog` — desired MCP server definitions
 
@@ -49,10 +104,10 @@ Written by adoption and catalogue update/removal/sync commands; read by overview
 |---|---|
 | `name` | Server key; non-empty, maximum 120 characters (`contract.ts:457-467`). |
 | `spec` | Normalized MCP definition: transport, command/args/env or URL/headers, and optional disabled state (`contract.ts:5-19`). |
-| `scope` | `global` participates in rollout; `local-only` stays outside desired-state sync (`contract.ts:461-463`, `server.ts:682-685`). |
-| `targets` | Agent kind allowlist; empty means all managed agent kinds (`contract.ts:463-464`, `server.ts:682-685`). |
-| `origin` | Source machine ID and CLI kind, or null (`contract.ts:464`). |
-| `updatedAt` | Unix epoch milliseconds for last catalogue mutation (`contract.ts:465`, `server.ts:2081-2085`). |
+| `scope` | Enum value `global` or `local-only`; adoption chooses the value and `wantsHere` excludes `local-only` (`contract.ts:499-500`, `server.ts:720-723`, `server.ts:1892-1910`). |
+| `targets` | Up to 32 agent-kind strings; rollout treats an empty array as all managed kinds (`contract.ts:501-502`, `server.ts:720-723`). |
+| `origin` | Nullable `{hostId, kind}` identifying the source machine and CLI for an adopted entry (`contract.ts:503`, `server.ts:1892-1910`). |
+| `updatedAt` | Numeric Unix epoch milliseconds; adoption initializes it and catalog update replaces it with `Date.now()` (`contract.ts:504`, `server.ts:1892-1910`, `server.ts:2116-2124`). |
 
 Primary key: `name` by application convention; the schema is an array and adoption appends entries (`server.ts:1892-1910`).
 
@@ -62,20 +117,20 @@ A string array of server names. `ignore` adds names and `unignore` removes them;
 
 ### `snapshot:<hostId>` — MCP host scan
 
-One record per BB host ID. `Snapshot` stores `hostId`, `hostName`, nullable `scan`, nullable `error`, and `at`; both timestamps are Unix epoch milliseconds (`server.ts:450-456`, `server.ts:558-567`). On host-call failure, `scan` remains null and `error` receives the failure text. On success, `scan` contains `hostname`, `platform`, `home`, nested `scannedAt`, `agents`, and `otherClis` (`server.ts:558-567`, `contract.ts:36-45`). Each agent record has `kind`, `label`, `installed`, `binPath`, `configPath`, `configExists`, `writable`, `gateway`, `servers`, and `warning` (`contract.ts:21-33`). Each server has `name`, `transport` (`stdio`, `http`, `sse`), optional `command`, `args`, `env`, `url`, `headers`, and `disabled` (`contract.ts:5-17`). Each extra CLI record has `bin` and `path` (`contract.ts:41-43`). `scanHost` writes the snapshot; `readSnapshots` supplies overview, drift and planning (`server.ts:547-567`, `server.ts:779-820`). No deletion or expiry path appears in the plugin.
+One record per BB host ID. `Snapshot` stores `hostId`, `hostName`, nullable `scan`, nullable `error`, and `at`; timestamps are Unix epoch milliseconds (`server.ts:450-456`, `server.ts:596-604`). On host-call failure, `scan` remains null and `error` receives the failure text. On success, `scan` contains `hostname`, `platform`, `home`, nested `scannedAt`, `agents`, and `otherClis` (`server.ts:596-604`, `contract.ts:40-48`). Each agent record has `kind`, `label`, `installed`, `binPath`, `configPath`, `configExists`, `writable`, `gateway`, `servers`, and `warning` (`contract.ts:25-37`). Each server has `name`, `transport` (`stdio`, `http`, `sse`), optional `command`, `args`, `env`, `url`, `headers`, and `disabled` (`contract.ts:5-21`). Each extra CLI record has `bin` and `path` (`server.ts:111-112`, `host.ts:812-823`). `scanHost` calls the selected host and writes `{hostId, hostName, scan, error, at}` whether the call succeeds or throws; `readSnapshots` loads stored values for overview and planning (`server.ts:596-604`, `server.ts:585-594`, `server.ts:831-843`, `server.ts:1158-1184`). No deletion or expiry path appears in the plugin.
 
 ### `skills:<hostId>`, `opencode:<hostId>`, `plugins:<hostId>` — feature scan snapshots
 
-Each record has `hostId`, `hostName`, `scan`, and `at` (`server.ts:458-470`). Skills scan fields include `canonicalPath`, `canonHasGit`, `pluginNames`, and `locations`; each entry has `name`, `kind`, `target`, `hash`, `mtime` in milliseconds, `hasSkillMd`, `bytes` excluding recognized junk for content comparison, `bbBytes` and `bbFiles` measured with junk included, and `junk` indicating a recognized junk directory (`contract.ts:74-112`, `host.ts:405-418`, `skill-tree.ts:32-70`). Connected-host scans write these records and the skills view reads them (`server.ts:569-589`, `server.ts:820-900`). The plugin also maintains a derived mirror under the BB server process's `experimental_dataDir/skills`; it is not the enrolled machine's `~/.bb/skills` home (`server.ts:1361-1383`, `skills-server.ts:58-64`). If a canon skill is absent from the server process's local canon, the rollout can select a connected host canon, call `skills_archive`, and extract the base64 tar into that process directory. The host packs recognized-junk exclusions and refuses archives over 8 MiB; extraction removes the temporary tar even if `tar` fails (`server.ts:1412-1453`, `server.ts:1488-1503`, `host.ts:1086-1115`, `skills-server.ts:130-145`). OpenCode and CLI-plugin scan shapes remain as defined in their contracts (`contract.ts:193-206`, `contract.ts:255-292`). Failed optional scans are logged and do not replace the existing records (`server.ts:580-610`).
+Each record has `hostId`, `hostName`, `scan`, and `at` (`server.ts:458-470`). Skills scan fields include `canonicalPath`, `canonHasGit`, `pluginNames`, and `locations`; each entry has `name`, `kind`, `target`, `hash`, `mtime` in milliseconds, `hasSkillMd`, `bytes` excluding recognized junk for content comparison, `bbBytes` and `bbFiles` measured with junk included, and `junk` indicating a recognized junk directory (`contract.ts:74-112`, `host.ts:405-418`, `skill-tree.ts:32-70`). Connected-host scans write these records and the skills view reads them (`server.ts:618-626`, `server.ts:831-900`). The plugin also maintains a derived mirror under the BB server process's `experimental_dataDir/skills`; it is not the enrolled machine's `~/.bb/skills` home (`server.ts:1361-1383`, `skills-server.ts:58-64`). If a canon skill is absent from the server process's local canon, the rollout can select a connected host canon, call `skills_archive`, and extract the base64 tar into that process directory. The host packs recognized-junk exclusions and refuses archives over 8 MiB; extraction removes the temporary tar even if `tar` fails (`server.ts:1412-1453`, `server.ts:1488-1503`, `host.ts:1086-1115`, `skills-server.ts:130-145`). OpenCode and CLI-plugin scan shapes remain as defined in their contracts (`contract.ts:193-206`, `contract.ts:255-292`). Optional OpenCode and plugin scans catch failures, log a warning, and leave any prior value in storage untouched (`server.ts:628-638`, `server.ts:640-648`).
 
 ### Scalar and bounded-value keys
 
 | KV key | Meaning / fields | Writer and readers |
 |---|---|---|
-| `lang` | `ru` or `en`; defaults to `ru` when absent or invalid (`server.ts:483-485`, `i18n.ts:6-17`). | UI/CLI setter; read during plugin initialization (`server.ts:483-485`, `server.ts:2162-2167`). |
-| `autoSync` | Boolean scheduled MCP sync toggle; absent means false (`server.ts:542-543`). | UI/CLI switch; hourly sweep reads it (`server.ts:2267-2287`). |
-| `lastScanAt`, `lastSyncAt` | Unix epoch milliseconds for last scan and sync (`server.ts:612`, `server.ts:1648`, `server.ts:1088-1089`). | Scan/sync orchestration; overview reads. No expiry shown. |
-| `probes` | Probe result array keyed by `(hostId, kind, name)` when replacing prior values; fields are `kind`, `name`, `ok`, `tools`, `error`, `durationMs`, and `checkedAt` (epoch milliseconds) (`contract.ts:145-156`, `server.ts:1843-1888`). | Probe writes and overview/CLI reads; array is capped at the latest 400 records (`server.ts:544-545`, `server.ts:1843-1888`). |
+| `lang` | `ru` or `en`; defaults to `en` when absent or unsupported (`server.ts:488-490`, `i18n.ts:6-17`). | `set_language` writes the key; plugin initialization reads it before defining setting labels (`server.ts:2201-2205`, `server.ts:488-490`). |
+| `autoSync` | Boolean scheduled MCP sync toggle; absent means false (`server.ts:580-581`). | Setter writes the switch; the scheduled sweep reads it before sync (`server.ts:2296-2302`, `server.ts:2306-2317`). |
+| `lastScanAt`, `lastSyncAt` | Unix epoch milliseconds for the most recent all-host scan and sync (`server.ts:650`, `server.ts:1686`). | Scan/sync orchestration writes; overview reads (`server.ts:1126-1127`). No expiry shown. |
+| `probes` | Probe result array keyed by `(hostId, kind, name)` when replacing prior values; fields are `kind`, `name`, `ok`, `tools`, `error`, `durationMs`, and `checkedAt` (epoch milliseconds) (`contract.ts:156-164`, `server.ts:1919-1925`). | Probe writes; overview and CLI read. The merged array is truncated to the latest 400 records (`server.ts:1919-1925`, `server.ts:2673-2689`). |
 | `metamcp` | Cached namespace records with `namespace`, `url`, `servers` (`name`, tool count), `error`, and `fetchedAt` (epoch milliseconds) (`server.ts:631-649`, `metamcp.ts:5-17`). | Gateway refresh; overview reads to preserve data across plugin reloads (`server.ts:631-649`). |
 
 ### BB settings
@@ -109,16 +164,17 @@ The plugin directly reads/writes the `project_execution_defaults` table in BB's 
 | Data | Transition / writer | Cleanup |
 |---|---|---|
 | Catalogue row | Pending adoption → global/local-only; update → changed fields; remove/forget → catalogue row deleted (`server.ts:1691-1710`, `server.ts:1877-1901`). | No age-based cleanup. `forget` leaves host configs unchanged (`server.ts:2365-2375`). |
-| MCP snapshots | Scan success or failure writes a fresh snapshot (`server.ts:543-553`). | No plugin cleanup path. |
+| MCP snapshots | `scanHost` stores each selected host result, with `error` on host-call rejection (`server.ts:596-604`). | No plugin cleanup path. |
 | Probe results | New result replaces same host/kind/name; newest combined list is truncated to 400 (`server.ts:1681-1688`). | Older probe records beyond that limit are dropped. |
 | Config backups | Created before writes; sorted and oldest beyond five are deleted (`host.ts:435-448`). | Keep last five per config file. |
 | Skill backups | Created before replacement/deletion; list computes uniqueness and sizes (`host.ts:521-537`, `host.ts:982-1039`). | No cleanup job in this code. |
 
-See [MCP catalogue](features/mcp-catalog.md), [skills](features/skills.md), and [OpenCode](features/opencode.md).
+See [MCP catalogue](features/mcp-catalog.md), [legacy skills rollout](features/skills.md), [hub skills and categories](features/skills-hub.md), and [OpenCode](features/opencode.md).
 
 <!-- lane-pilot:backlinks -->
 ## Referenced by
 
+- [Plugin RPC and Skills page runtime](api-runtime.md)
 - [Agent Tools architecture](architecture.md)
 - [MCP server catalogue](features/mcp-catalog.md)
 - [OpenCode provider and model management](features/opencode.md)

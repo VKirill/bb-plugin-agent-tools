@@ -2,7 +2,7 @@
 title: Agent skill canon and rollout
 type: component
 created: 2026-09-27
-updated: 2026-10-16
+updated: 2026-10-27
 status: active
 confidence: medium
 tags: [skills, canon, fanout]
@@ -17,20 +17,25 @@ sources:
   - skills-sync.ts
   - skills-server.ts
   - skill-tree.ts
+  - skills-hub-service.ts
+  - hub-skills.ts
+  - classifier.ts
+  - categories.ts
+  - skills-page.tsx
+  - skill-meta.ts
 ---
 # Agent skill canon and rollout
-> **Superseded in 0.2.9.** The skills canon moved to the BB hub. The current design is in `hub-skills.ts`
-> (canon, git, publish), `categories.ts` and `classifier.ts` (category tree and the hidden classifier thread),
-> `host-skills.ts` (drafts and cleaning machine copies) and `skills-page.tsx` (the Skills section). The
-> machine-canon fan-out described below still exists in code but is no longer run by the sweep or shown in the UI.
+The plugin has a BB-server hub library used by sessions and a legacy per-machine canon scanner and fan-out (`hub-skills.ts:8-12`, `skills.ts:103-138`, `server.ts:1538-1569`). The hub library and category tree are managed from the Skills page and `bb tools` routes; see [Hub skills and categories](skills-hub.md) (`skills-page.tsx:140-199`, `skills-hub-service.ts:139-184`, `skills-hub-service.ts:732-742`).
 
-The skills feature compares skill folders on each machine against `~/.agents/skills`, then plans promotions, Git synchronization, CLI-home links or mirrors, and snapshots (`host.ts:374-435`, `server.ts:1538-1569`).
+The legacy machine rollout compares skill folders on each machine against `~/.agents/skills`, then plans promotions, Git synchronization, CLI-home links or mirrors, and snapshots (`host.ts:374-435`, `server.ts:1538-1569`).
 
 ## Purpose
 
-Each scanned skill entry includes its name, directory or symlink kind, resolved target, content hash, newest modification time, and whether `SKILL.md` exists (`contract.ts:74-106`). The shared planner assigns visible states and deterministic actions (`skills.ts:138-190`, `skills.ts:191-252`).
+The hub-backed library stores skill files under the BB server data directory; the older machine scanner compares CLI homes with `~/.agents/skills` and plans explicit reconciliation actions (`hub-skills.ts:8-12`, `host.ts:374-435`, `skills.ts:138-190`). Details of hub publishing, category placement and restart recovery are in [Hub skills and categories](skills-hub.md).
 
-## How it works
+## Legacy machine canon and rollout
+
+### How it works
 
 1. A machine host scans the canon and known homes, ignores hidden names, fingerprints skill folders, and also detects names already supplied by marketplace plugins (`host.ts:374-435`).
 2. The server stores the scan by host and derives out-of-canon rows and a cross-machine canon matrix (`server.ts:569-589`, `server.ts:834-900`).
@@ -43,11 +48,11 @@ Each scanned skill entry includes its name, directory or symlink kind, resolved 
 
 ### Server initialization and settings
 
-1. The `plugin` entry reads the `lang` key from BB KV; a supported saved language is applied and an absent or invalid value selects Russian (`server.ts:479-485`).
+1. The `plugin` entry reads `lang` from BB KV; a saved `ru` or `en` value is applied, while an absent or invalid value selects English (`server.ts:484-490`).
 2. It defines MetaMCP address/key/namespaces, scheduled skills fan-out, marketplace-name handling, and the canon Git remote. Defaults are empty URL/key, `secondary`, fan-out off, plugin names included, and no remote (`server.ts:487-529`).
-3. It creates a host RPC client and exposes helpers for catalog, ignored names, auto-sync, and probe storage. Missing stored collections read as empty lists; missing `autoSync` reads as false (`server.ts:531-545`).
+3. It creates the host RPC client and skills hub service, then defines KV readers for catalogue, ignored names, auto-sync and probes. Missing collections read as empty lists; missing `autoSync` reads as false (`server.ts:556-583`).
 
-The initialization code here has no local catch around the initial KV read or host client creation (`server.ts:483-535`).
+The initial language KV read, settings definition, and host-client construction have no local catch branch (`server.ts:484-490`, `server.ts:492-565`).
 
 ### Skill row classification
 
@@ -71,7 +76,7 @@ The initialization code here has no local catch around the initial KV read or ho
 | Input case | Row outcome |
 |---|---|
 | Canon entry lacks `SKILL.md` | It is excluded from the canon lookup, so no row can match it by canonical hash (`skills.ts:235-240`). |
-| Home absent or it is the canon itself | Entries are not visited (`skills.ts:247-250`). |
+| Home absent or it is the canon itself | Entries are not visited (`skills.ts:247-249`). |
 | Symlink in `drop` policy | `stray-link`; symlink to canon | `linked`; symlink into BB home | `bb-registry` (`skills.ts:252-258`). |
 | External symlink without canon entry | `only-here` when `SKILL.md` exists; otherwise excluded (`skills.ts:259-262`). |
 | External symlink matching canon hash | Excluded; differing hash | `linked-external` (`skills.ts:263-267`). |
@@ -120,7 +125,9 @@ The planner does not write files; oversized BB copies are returned in `blocked`.
 
 `planServerBbMirror` plans only additions or replacements under the BB server process's `dataDir/skills`; it does not handle pulls or retirements (`skills.ts:575-612`). It ignores plugin-provided names when those names are passed in, canon symlinks, and destination symlinks. For regular canon folders, it blocks copies above 10 MiB, plans missing copies, plans a mirror when canon is at least as new, and plans a cleanup mirror when hashes match but the destination contains junk (`skills.ts:582-609`). The routine checks byte size only: although scans carry `bbFiles`, its callers pass `bytes` to `bbTreeProblem` without a file count (`contract.ts:99-105`, `skills.ts:151-162`, `skills.ts:582-595`).
 
-`runServerBbSkills` uses the local canon and fills missing names from the most populated connected host canon. It runs Git sync first when a remote is configured and this is not a dry run, then scans canon and server destination and calls `planServerBbMirror` (`server.ts:1361-1453`). Local entries are copied directly; a host-only entry is packed with `skills_archive`, then extracted into `dataDir/skills`. A blocked plan or failed archive, extraction, or copy is returned in the rollout's per-operation failures (`server.ts:1455-1532`, `contract.ts:440-447`, `host.ts:1086-1115`, `skills-server.ts:120-145`).
+`runServerBbSkills` uses the local canon and fills missing names from the most populated connected host canon. It runs Git sync first when a remote is configured and this is not a dry run, then scans canon and server destination and calls `planServerBbMirror` (`server.ts:1361-1453`). Local entries are copied directly; a host-only entry is packed with `skills_archive`, then extracted into `dataDir/skills`. A blocked plan or failed archive, extraction, or copy is returned in the rollout's per-operation failures (`server.ts:1455-1532`, `contract.ts:440-447`, `host.ts:1086-1115`, `skills-server.ts:130-146`).
+
+Archive extraction modes and failure behavior are detailed in [BB server skill mirror archive](skills-server-mirror.md) (`skills-server.ts:130-146`, `server.ts:1488-1503`).
 
 ### Canon screen
 
@@ -159,21 +166,21 @@ The host returns `{ ok: false, error }` for validation failures. Filesystem erro
 
 `syncSkillsCanon` uses an injected Git runner and optional path, timestamp, host-name, and fingerprint functions; otherwise it uses the host Git runner and local defaults (`skills-sync.ts:21-49`, `skills-sync.ts:87-98`).
 
-1. Without `.git` in the canon, it creates a timestamped snapshot, clones the remote to a temporary path, adds only top-level entries absent locally, and moves clone metadata into canon. When `fingerprintDir` is supplied, it records same-name hash divergences while retaining local folders; then it removes the temporary clone (`skills-sync.ts:99-130`).
-2. With `.git`, it reads `origin`; when its URL differs from the requested remote, it adds or changes `origin`, then runs `pull --rebase --autostash` (`skills-sync.ts:131-142`).
-3. If pull fails, it aborts the rebase. A failure other than untracked-file overwrite returns an error. For that overwrite case it fetches `origin`, reads top-level non-hidden names from the fetched tree, checks out only names absent locally, and records local name collisions without replacing them (`skills-sync.ts:142-177`).
-4. It adds root-level symlink names and dependency/cache directories to `.gitignore`, stages all changes, commits only when the worktree is dirty, and verifies the fetched ref is an ancestor of local HEAD. If needed, it records the remote ref with an `ours` merge commit (`skills-sync.ts:179-221`).
-5. It pushes and returns `ok: true` with a message indicating whether it committed and pushed. A push failure returns `ok: false` and a clipped error; other Git failures abort an in-progress rebase where possible and return `ok: false` (`skills-sync.ts:222-236`).
+1. Without `.git` in the canon, it creates a timestamped snapshot, clones the remote to a temporary path, adds only top-level entries absent locally, and moves clone metadata into canon. When `fingerprintDir` is supplied, it records same-name hash divergences while retaining local folders; then it removes the temporary clone (`skills-sync.ts:127-158`).
+2. With `.git`, it reads `origin`; when its URL differs from the requested remote, it adds or changes `origin`, then runs `pull --rebase --autostash` (`skills-sync.ts:159-176`).
+3. If pull fails, it aborts the rebase. A failure other than untracked-file overwrite returns an error. For that overwrite case it fetches `origin`, reads top-level non-hidden names from the fetched tree, checks out only names absent locally, and records local name collisions without replacing them (`skills-sync.ts:177-212`).
+4. It adds root-level symlink names and dependency/cache directories to `.gitignore`, stages all changes, commits only when the worktree is dirty, and verifies the fetched ref is an ancestor of local HEAD. If needed, it records the remote ref with an `ours` merge commit (`skills-sync.ts:214-256`).
+5. It pushes and returns `ok: true` with a message indicating whether it committed and pushed. A push failure returns `ok: false` and a clipped error; other Git failures abort an in-progress rebase where possible and return `ok: false` (`skills-sync.ts:257-271`).
 
 Clone, pull, fetch, checkout, commit, merge, or ref failures reach the catch path, which aborts a rebase where possible and returns `ok: false`, an error, and no success message (`skills-sync.ts:233-236`).
 
 | Branch | Condition and work | Result or failure |
 |---|---|---|
-| First Git sync | Canon lacks `.git`; snapshot local tree, clone remote, add only absent top-level items, preserve same-name local content and install clone metadata (`skills-sync.ts:99-130`). | Continues into ignore/stage/commit/ref-check/push. Clone or migration errors are caught and returned as `ok:false` (`skills-sync.ts:233-236`). |
-| Existing repository | Read `origin`, add or replace its URL when needed, then `pull --rebase --autostash` (`skills-sync.ts:131-142`). | A successful pull sets the remote ref used by the later ancestry check (`skills-sync.ts:139-142`). |
-| Pull blocked by untracked overwrite | Abort rebase; only this parsed failure with named paths enters recovery. Fetch remote tree and check out names absent locally; existing local names are kept (`skills-sync.ts:142-177`). | Fetch/checkout failure returns `ok:false`; other pull errors return `ok:false` without recovery (`skills-sync.ts:145-175`). |
-| Local commit/reconcile | Add root symlink and junk-directory ignores, stage the canon, commit only if dirty, and verify remote ref is an ancestor; if not, record it with an `ours` merge (`skills-sync.ts:179-221`). | Missing remote ref or failed merge/recheck returns `ok:false` via the outer catch (`skills-sync.ts:210-221`, `skills-sync.ts:233-236`). |
-| Push | Push after local reconciliation (`skills-sync.ts:222-223`). | Push failure returns `ok:false` with clipped first-line error; success returns `ok:true` and a message. A clean tree still pushes but does not create a commit (`skills-sync.ts:222-232`). |
+| First Git sync | Canon lacks `.git`; snapshot local tree, clone remote, add only absent top-level items, preserve same-name local content and install clone metadata (`skills-sync.ts:127-158`). | Continues into ignore/stage/commit/ref-check/push. Clone or migration errors are caught and returned as `ok:false` (`skills-sync.ts:233-236`). |
+| Existing repository | Read `origin`, add or replace its URL when needed, then `pull --rebase --autostash` (`skills-sync.ts:159-176`). | A successful pull sets the remote ref used by the later ancestry check (`skills-sync.ts:139-142`). |
+| Pull blocked by untracked overwrite | Abort rebase; only this parsed failure with named paths enters recovery. Fetch remote tree and check out names absent locally; existing local names are kept (`skills-sync.ts:177-212`). | Fetch/checkout failure returns `ok:false`; other pull errors return `ok:false` without recovery (`skills-sync.ts:177-183`). |
+| Local commit/reconcile | Add root symlink and junk-directory ignores, stage the canon, commit only if dirty, and verify remote ref is an ancestor; if not, record it with an `ours` merge (`skills-sync.ts:214-256`). | Missing remote ref or failed merge/recheck returns `ok:false` via the outer catch (`skills-sync.ts:245-256`, `skills-sync.ts:268-271`). |
+| Push | Push after local reconciliation (`skills-sync.ts:257-258`). | Push failure returns `ok:false` with clipped first-line error; success returns `ok:true` and a message. A clean tree still pushes but does not create a commit (`skills-sync.ts:257-271`). |
 
 ## Modes, policies, and states
 
@@ -225,5 +232,7 @@ See [decisions](../decisions.md), [data model](../data-model.md), and [gotchas](
 - [Agent Tools API and commands](../api.md)
 - [Agent Tools data model](../data-model.md)
 - [Agent Tools decisions](../decisions.md)
+- [Hub skills and categories](skills-hub.md)
+- [BB server skill mirror archive](skills-server-mirror.md)
 - [Agent Tools gotchas](../gotchas.md)
 - [Agent Tools overview](../overview.md)

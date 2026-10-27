@@ -21,6 +21,6 @@ Open the **Agent Tools** page in the BB sidebar. The interface and CLI support R
 ## Documentation
 
 - [Overview](docs/overview.md) and [architecture](docs/architecture.md)
-- Features: [MCP catalogue](docs/features/mcp-catalog.md), [skills](docs/features/skills.md), [CLI plugins](docs/features/cli-plugins.md), and [OpenCode](docs/features/opencode.md)
+- Features: [MCP catalogue](docs/features/mcp-catalog.md), [legacy skills rollout](docs/features/skills.md), [hub skills and categories](docs/features/skills-hub.md), [CLI plugins](docs/features/cli-plugins.md), and [OpenCode](docs/features/opencode.md)
 - [API and commands](docs/api.md), [deployment](docs/deployment.md), [data model](docs/data-model.md), and [gotchas](docs/gotchas.md)
 - [Release notes](CHANGELOG.md)

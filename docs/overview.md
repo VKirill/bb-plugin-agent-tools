@@ -2,7 +2,7 @@
 title: Agent Tools overview
 type: overview
 created: 2026-09-27
-updated: 2026-10-16
+updated: 2026-10-27
 status: active
 confidence: medium
 tags: [bb-plugin, mcp, agent-skills]
@@ -52,6 +52,7 @@ bb plugin install .
 - [Architecture](architecture.md) — runtime parts and call paths.
 - [MCP catalogue](features/mcp-catalog.md) — inventory, drift, adoption, sync, removal, probes, and MetaMCP.
 - [Skills](features/skills.md) — canon, per-home policy, snapshots, Git sync, and fan-out.
+- [Hub skills and categories](features/skills-hub.md) — session-wide skill library, category placement, publish and restart recovery.
 - [OpenCode](features/opencode.md) — provider and model drift and updates.
 - [CLI plugins](features/cli-plugins.md) — inventory of installed CLI plugins.
 - [API and commands](api.md) — all BB RPC methods and `bb tools` commands.

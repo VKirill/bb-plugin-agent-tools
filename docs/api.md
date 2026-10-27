@@ -2,9 +2,9 @@
 title: Agent Tools API and commands
 type: component
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-27
 status: active
-confidence: medium
+confidence: low
 tags: [api, rpc, cli]
 sources:
   - server.ts
@@ -16,6 +16,9 @@ sources:
   - skills-server.ts
   - opencode.ts
   - i18n.ts
+  - skills-hub-service.ts
+  - skills-page.tsx
+  - categories.ts
 ---
 # Agent Tools API and commands
 The plugin exposes BB plugin RPC methods, machine-local host RPC methods, and the `bb tools` CLI; this repository registers no plugin-owned HTTP routes (`server.ts:2055-2265`, `server.ts:2353-2373`).
@@ -24,24 +27,26 @@ The plugin exposes BB plugin RPC methods, machine-local host RPC methods, and th
 
 1. The plugin UI calls a named server RPC, or BB invokes the `tools` CLI handler (`app.tsx:114-138`, `server.ts:2153-2166`).
 2. `rpcContract` validates the UI/server method inputs, while `hostContract` defines the methods and payloads the server can call on a selected host (`server.ts:201-434`, `contract.ts:355-452`).
-3. The server handler reads stored state or orchestrates host calls; host RPC targets a BB host ID (`server.ts:534`, `server.ts:2055-2121`).
+3. The server handler reads stored state or orchestrates host calls through a client bound to `hostContract`; each host call supplies a target BB `hostId` (`server.ts:557-565`, `server.ts:596-604`).
 4. The host performs the requested scan or file operation and returns a typed result; write calls return per-operation outcomes and backups (`host.ts:783-785`, `host.ts:1118-1189`).
 5. The server returns the result to the UI/CLI and publishes refreshed overview state after mutations (`server.ts:1081-1085`, `server.ts:2055-2265`, `server.ts:2480-2932`).
+
+Detailed startup, RPC-contract and Skills page branches are documented in [RPC runtime internals](api-runtime.md) (`server.ts:484-565`, `server.ts:201-448`, `skills-hub-service.ts:139-184`, `skills-page.tsx:140-210`).
 
 ### Modes and branches
 
 | Mode | Branch | Result |
 |---|---|---|
-| Read/report | `overview`, scans, plans, and inventory CLI commands read snapshots or collect host scans | Overview or report data; scan failures are retained as host errors (`server.ts:543-553`, `server.ts:779-820`). |
+| Read/report | `overview` assembles stored snapshots and derived views; scan commands collect host scans; plan commands derive operations from snapshots | Overview/report data; `scanHost` stores a failed scan call with its host ID, time, and error (`server.ts:831-843`, `server.ts:596-604`, `server.ts:1158-1184`). |
 | Mutating RPC/CLI | Catalogue, skill, OpenCode, and config commands call server handlers that update KV state or host files | Updated overview, counts, and operation results (`server.ts:2055-2265`, `server.ts:2480-2932`). |
 | Dry run | `sync`, `purge`, `skills_fanout`, and OpenCode apply/clean accept `dryRun` | Operations are planned or evaluated without the corresponding host-file write (`server.ts:223-250`, `server.ts:324-351`, `contract.ts:231-250`, `host.ts:1173-1177`). |
-| Host RPC | Server dispatches methods from `hostContract` to a selected `hostId` | Host-local scan, skill, MCP, plugin, or OpenCode result (`contract.ts:355-452`, `server.ts:520-521`). |
+| Host RPC | Server dispatches methods from `hostContract` to a selected `hostId` | Host-local scan, skill, MCP, plugin, or OpenCode result (`contract.ts:355-491`, `server.ts:557-565`, `host.ts:789-795`). |
 | CLI JSON output | Caller passes `--json` to supported read/report commands | Handler serializes the result as JSON (`server.ts:2480-2534`, `server.ts:2825-2932`). |
 
 ### Failure behavior
 
 - Zod rejects inputs that do not match the declared RPC schemas (`server.ts:215-448`, `contract.ts:355-452`).
-- A host-call rejection during MCP scan is stored in the snapshot `error`; fan-out and sync results carry failed counts and error text (`server.ts:558-567`, `server.ts:1178-1242`, `server.ts:1606-1651`).
+- A host-call rejection during MCP scan is stored in the snapshot `error`; fan-out and sync handlers collect operation failures and return counts/error strings (`server.ts:596-604`, `server.ts:1178-1242`, `server.ts:1606-1651`).
 - Host writes return per-operation errors when the agent is unknown, the file is not writable, or parsing/writing fails (`host.ts:1118-1189`).
 - Skill adopt/restore handlers throw when the host returns `ok: false`; bulk operations preserve failures in their result (`server.ts:2122-2160`, `server.ts:2173-2177`).
 - CLI input checks return `exitCode: 1` with `stderr` for a missing catalogue name, a missing `--host` on gateway import, an unreadable import file, or an invalid language (`server.ts:2565-2571`, `server.ts:2640-2653`, `server.ts:2665-2672`).
@@ -49,7 +54,7 @@ The plugin exposes BB plugin RPC methods, machine-local host RPC methods, and th
 ## Authentication and transport
 
 - **UI-to-server:** the BB plugin UI calls RPC method names such as `overview` and `rescan`; the plugin registers them with `bb.rpc.register` (`app.tsx:114-138`, `server.ts:2055-2060`). No per-method authentication check is implemented in this plugin (`server.ts:2055-2265`).
-- **Server-to-host:** the plugin creates `bb.hosts.experimental_client({ contract: hostContract })`; each call supplies the target BB `hostId`, and handlers run in the trusted host entry (`server.ts:534`, `server.ts:561`, `host.ts:782-785`).
+- **Server-to-host:** the plugin creates `bb.hosts.experimental_client({ contract: hostContract })`; calls supply the target BB `hostId`, and methods are handled by the registered host entry (`server.ts:557-565`, `server.ts:596-604`, `host.ts:789-795`).
 - **CLI:** BB registers the `tools` command group and invokes its `run(argv)` handler inside the plugin runtime (`server.ts:2353-2356`, `server.ts:2466-2475`).
 - **HTTP:** no Hono app or route registration is present in the plugin entry; `hono` is a development dependency only (`package.json:61-72`).
 
@@ -59,29 +64,52 @@ All methods use BB RPC names rather than HTTP method/path pairs. Each method acc
 
 | Area | Method | Caller | Purpose | Auth |
 |---|---|---|---|---|
-| Overview | `overview` | UI | Return inventory, drift, pending entries, skills, plugins, and OpenCode view | BB plugin RPC; no plugin-level check (`server.ts:216`, `server.ts:2055-2056`) |
+| Overview | `overview` | UI | Return inventory, drift, pending entries, skills, plugins, and OpenCode view | BB plugin RPC (`server.ts:134-151`, `server.ts:1114-1137`, `server.ts:2092-2096`) |
 | Overview | `rescan` | UI | Scan all connected machines, or the given `hostId`; refresh MetaMCP | BB plugin RPC (`server.ts:217`, `server.ts:2057-2060`) |
 | Catalogue | `adopt` | UI | Add pending server names with global/local-only scope | BB plugin RPC (`server.ts:218-224`, `server.ts:2061-2064`) |
-| Catalogue | `ignore`, `unignore` | UI | Hide pending names or show them again | BB plugin RPC (`server.ts:225-226`, `server.ts:2065-2076`) |
+| Catalogue | `ignore`, `unignore` | UI | Hide pending names or show them again | BB plugin RPC (`server.ts:744-760`, `server.ts:2104-2114`) |
 | Catalogue | `catalog_update`, `catalog_remove` | UI | Change scope, target agents, server spec, or remove a catalogue row | BB plugin RPC (`server.ts:227-236`, `server.ts:2077-2092`) |
 | Catalogue | `purge` | UI | Remove a server from selected host(s), optionally gateway configs; supports dry run | BB plugin RPC (`server.ts:237-250`, `server.ts:2093-2101`) |
 | Catalogue | `plan`, `sync` | UI | Return proposed operations; apply additions/updates with dry-run and include-different flags | BB plugin RPC (`server.ts:252-264`, `server.ts:2103-2109`) |
 | Catalogue | `probe` | UI | Handshake selected server(s) and return result counts | BB plugin RPC (`server.ts:268-274`, `server.ts:2110-2113`) |
 | Catalogue | `set_server_enabled` | UI | Enable/disable a server where its dialect supports the flag | BB plugin RPC (`server.ts:276-288`, `server.ts:2114-2117`) |
 | Gateway | `gateway_add` | UI | Parse JSON and add entries to a host's existing MetaMCP config | BB plugin RPC (`server.ts:289-301`, `server.ts:2118-2120`) |
-| Schedule/language | `set_auto_sync`, `set_skills_fanout_auto`, `set_language` | UI | Change auto-sync switches and UI/CLI language | BB plugin RPC (`server.ts:252-253`, `server.ts:319-323`, `server.ts:2162-2166`, `server.ts:2255-2264`) |
+| Schedule/language | `set_auto_sync`, `set_skills_fanout_auto`, `set_language` | UI | Change auto-sync switches and UI/CLI language | BB plugin RPC (`server.ts:271-272`, `server.ts:2201-2205`, `server.ts:2296-2302`) |
 | Skills | `skill_adopt`, `skill_adopt_bulk` | UI | Apply explicit per-home actions | BB plugin RPC (`server.ts:289-317`, `server.ts:2122-2160`) |
 | Skills | `skills_fanout` | UI | Promote, Git-sync, fan out to connected machine homes, and mirror skills into BB server dataDir; optionally dry-run | BB plugin RPC (`server.ts:324-351`, `server.ts:1538-1569`, `server.ts:2168-2171`) |
 | Skills | `skills_backups`, `skills_backup_restore` | UI | List snapshots or restore a selected snapshot | BB plugin RPC (`server.ts:353-370`, `server.ts:2172-2177`) |
-| Skills | `skills_sync` | UI | Synchronize the canon with configured Git remote and return per-host results | BB plugin RPC (`server.ts:372-380`, `server.ts:2179-2185`) |
+| Skills | `skills_sync` | UI | Synchronize the canon with configured Git remote and return per-host results | BB plugin RPC (`server.ts:436-443`, `server.ts:2218-2223`) |
 | OpenCode | `opencode_sync` | UI | Copy selected providers, models, and enabled state from source to connected target(s) | BB plugin RPC (`server.ts:395-407`, `server.ts:2186-2191`) |
 | OpenCode | `opencode_clean` | UI | Remove named or known-stale providers; supports dry run | BB plugin RPC (`server.ts:408-419`, `server.ts:2188-2195`) |
 | OpenCode | `opencode_apply` | UI | Apply provider/model/enabled operations to one host | BB plugin RPC (`server.ts:420-433`, `server.ts:2196-2217`) |
 | OpenCode | `opencode_set_default_model` | UI | Update BB's default and/or OpenCode's model defaults | BB plugin RPC (`server.ts:434-448`, `server.ts:2218-2252`) |
 
+### Hub skills UI/server RPC
+
+`SkillsPage` uses these RPC methods to manage the BB server's hub library. The contract validates payloads and result shapes; the handlers live in `createSkillsHubService` (`skills-page.tsx:140-210`, `skills-hub-service.ts:139-184`, `skills-hub-service.ts:524-579`).
+
+| Method | Input | Result / effect |
+|---|---|---|
+| `skills_hub` | `null` | Hub listing, category tree, classifier status, machine scan summary and Git status. |
+| `skills_hub_detail` | `name` (max 120 chars) | Detail or `null`; includes capped skill content, file list and history. |
+| `skills_hub_file` | `name` (max 120), relative `path` (max 500) | Text or `null` for the selected file. |
+| `skills_move` | `skill`, `sectionId`, `subsectionId` | Saves a manual assignment and returns refreshed hub state. |
+| `skills_review_accept` | `skill` (max 120) | Creates/uses the proposed category and records a manual assignment. |
+| `skills_category_create` | Non-empty `section` and `subsection`, each max 60 | Adds the missing category path and returns hub state. |
+| `skills_category_rename` | `id`, non-empty `title` max 60 | Renames a section or subsection and returns hub state. |
+| `skills_category_remove` | `id` | Removes an empty subsection or a section with no assigned skills; throws when assignments use that ID (`skills-hub-service.ts:550-552`, `categories.ts:241-250`). |
+| `skills_classify` | `null` | Starts background classification and returns hub state. |
+| `skills_remove` | `name` (max 120) | Archives and removes a hub skill; returns `{ok,error,hub}`. |
+| `skills_pull` | `name`, `hostId`, nullable `target` max 500 | Copies a hub skill to a connected host; returns `{ok,path,error}`. |
+| `skills_publish` | `hostId`, `path` max 500, required `dryRun` | Packs a host skill and publishes it to the hub; returns validation and Git result. |
+| `skills_machines_refresh` | `null` | Refreshes per-host skill-home counts and returns hub state. |
+| `skills_machines_cleanup` | `hostId`, required `dryRun` | Previews or archives skill copies on one host; returns moved counts, errors and hub state. |
+
+The schemas and limits are declared per method in `skillsRpcContract` (`skills-hub-service.ts:139-183`). The UI loads the hub on mount, polls at five-second intervals while classification is active, and fetches detail for the selected skill (`skills-page.tsx:179-210`). The UI action wrapper displays thrown RPC errors and clears its busy state in `finally` (`skills-page.tsx:163-177`).
+
 ## Host RPC
 
-The `hostContract` is executed by the trusted host entry (`contract.ts:355-452`, `host.ts:782-785`). UI/server callers reach it through the client created during plugin initialization (`server.ts:534`).
+The `hostContract` is executed by the registered host entry (`contract.ts:355-491`, `host.ts:789-795`). UI/server callers reach it through the client created during plugin initialization (`server.ts:557-565`).
 
 | Method | Caller | Purpose | Auth |
 |---|---|---|---|
@@ -100,12 +128,12 @@ The `hostContract` is executed by the trusted host entry (`contract.ts:355-452`,
 ### Host contract request flow and branches
 
 1. `defineRpcContract` declares each method's Zod input and output. Invalid payloads fail contract validation before the host handler runs (`contract.ts:355-414`).
-2. The server's host client dispatches a method to the selected machine; handlers receive an abort signal where long-running work can be cancelled (`server.ts:534`, `server.ts:561`, `host.ts:782-785`).
+2. The server creates the host client with `hostContract` and calls it with the selected machine's `hostId`; registered host handlers receive the BB RPC context, including its abort signal (`server.ts:557-565`, `server.ts:596-604`, `host.ts:789-795`).
 3. The handler returns the declared output shape. Some methods report operation failures inside that shape; an uncaught exception or aborted signal rejects the host call.
 
 | Method | Branches and limits | Output and failure behavior |
 |---|---|---|
-| `scan` / `skills_scan` | No arguments; scan methods check the RPC abort signal while traversing host data (`contract.ts:355-368`, `host.ts:785-818`, `host.ts:374-435`, `host.ts:871`). | Return the machine scan; interruption rejects the call, which server orchestration handles at the caller (`server.ts:558-567`, `server.ts:580-588`). |
+| `scan` / `skills_scan` | No arguments; scan methods check the RPC abort signal while traversing host data (`contract.ts:355-368`, `host.ts:789-825`, `host.ts:374-435`, `host.ts:871`). | Return the machine scan; a `scan` rejection is stored in the snapshot's `error` field (`server.ts:596-604`). |
 | `apply` | Up to 200 upsert/remove operations and required `dryRun` (`contract.ts:357-360`). | Returns per-operation `{ok,error}` and created backup paths. Unknown agents, unwritable files, parse errors, and write failures become failed operation rows (`host.ts:1118-1189`). |
 | `probe` | Up to 60 targets, timeout from 1 to 60 seconds; checks targets sequentially (`contract.ts:361-367`, `host.ts:820-868`). | Unknown agent or missing config entry becomes a result with `ok:false`; protocol outcome and elapsed milliseconds are recorded per target (`host.ts:832-868`). |
 | `skills_adopt`, `skills_adopt_bulk` | One selected location/name/action or up to 200 such actions; modes are `adopt`, `link`, `take`, `delete`, `unlink` (`contract.ts:369-403`). Bulk execution is sequential and checks cancellation between actions (`host.ts:873-882`). | Each action returns `ok` and optional error; validation failures are values, while uncaught filesystem failures reject the call (`host.ts:476-570`). |
@@ -113,17 +141,18 @@ The `hostContract` is executed by the trusted host entry (`contract.ts:355-452`,
 
 ### Plugin initialization
 
-1. The plugin reads `lang` from BB KV. Only supported language values are selected; a missing or invalid value selects Russian, then updates the shared dictionary (`server.ts:479-485`).
-2. It defines plugin settings, then creates `readConfig` as a live `settings.get()` call and creates a host client bound to `hostContract` (`server.ts:487-534`).
-3. It defines KV readers for catalogue, ignored names, auto-sync and probes. Missing arrays read as `[]`; absent `autoSync` reads as `false` (`server.ts:536-545`).
+1. The plugin reads `lang` from BB KV. `isLang` retains supported `ru` or `en`; absent or invalid values select English, then update the shared dictionary (`server.ts:484-490`).
+2. It defines plugin settings, creates `readConfig` as a live `settings.get()` call, then creates a host client and the skills-hub service (`server.ts:492-565`).
+3. It defines catalogue, ignored-name, auto-sync, and probe readers. Missing stored arrays read as `[]`; absent `autoSync` reads as `false` (`server.ts:574-583`).
+4. It registers classifier-thread configuration and later registers RPC handlers, including the skills-hub handler map (`server.ts:566-572`, `server.ts:2092-2096`).
 
 | Initialization condition | Selected behavior |
 |---|---|
-| Saved language is `ru` or `en` | Apply that dictionary before settings labels are defined (`server.ts:483-485`, `i18n.ts:6-17`). |
-| Saved language is missing or unsupported | Start in Russian (`server.ts:483-485`). |
-| A setting changes while the plugin is running | `readConfig` retrieves the settings object at use time (`server.ts:531-534`). |
+| Saved language is `ru` or `en` | Apply that dictionary before settings labels are defined (`server.ts:488-490`, `i18n.ts:6-17`). |
+| Saved language is missing or unsupported | Start in English (`server.ts:488-490`). |
+| A setting changes while the plugin is running | `readConfig` retrieves settings at use time; blank classifier provider/model values use their configured fallback (`server.ts:554-565`). |
 
-The initial KV read, settings definition, and host-client construction have no local catch branch; a failure there rejects plugin initialization (`server.ts:483-534`). Exact setting values and rollout effects are owned by [skills](features/skills.md).
+The initial KV read, settings definition, host-client construction, and hub-service creation have no local catch branch; a failure there rejects plugin initialization (`server.ts:488-565`). Optional scan failures are handled separately by scan orchestration (`server.ts:618-648`). Exact setting values and rollout effects are owned by [skills](features/skills.md).
 
 ### OpenCode host apply
 
@@ -166,21 +195,29 @@ All commands are registered under `bb tools`; `--json` returns JSON for the read
 | Skills | `bb tools skills-backups [--host <id>] [--json]` | BB CLI user | List archived skill versions | BB CLI runtime (`server.ts:2225-2229`, `server.ts:2590-2601`) |
 | Skills | `bb tools skills-restore <snapshot-id> --host <id>` | BB CLI user | Restore a snapshot into canon | BB CLI runtime (`server.ts:2231-2234`, `server.ts:2602-2611`) |
 | Skills | `bb tools skills-sync [--host <id>]` | BB CLI user | Sync canon through configured Git remote | BB CLI runtime (`server.ts:2235-2239`, `server.ts:2612-2622`) |
+| Hub skills | `bb tools skills-hub [--json]` / `bb tools skills-tree [--skills] [--json]` | BB CLI user | Show hub skills, category assignments, validation problems, Git state, or the category tree | Plugin CLI runtime (`skills-hub-service.ts:601-638`, `skills-hub-service.ts:732-742`) |
+| Hub skills | `bb tools skills-publish <folder> [--host <id>] [--dry-run]` | BB CLI user | Validate and publish one host skill folder to the hub | Plugin CLI runtime (`skills-hub-service.ts:640-660`, `skills-hub-service.ts:732-742`) |
+| Hub skills | `bb tools skills-pull <name> [--to <folder>] [--host <id>]` | BB CLI user | Copy one hub skill to a connected host | Plugin CLI runtime (`skills-hub-service.ts:662-667`, `skills-hub-service.ts:732-742`) |
+| Hub skills | `bb tools skills-move <name> "<section>/<subsection>"` / `bb tools skills-classify [--wait]` | BB CLI user | Set a manual category or classify unplaced skills | Plugin CLI runtime (`skills-hub-service.ts:669-689`, `skills-hub-service.ts:732-742`) |
+| Hub skills | `bb tools skills-remove <name>` | BB CLI user | Archive and remove a skill from the hub | Plugin CLI runtime (`skills-hub-service.ts:690-695`, `skills-hub-service.ts:732-742`) |
+| Hub skills | `bb tools skills-machines` / `bb tools skills-cleanup --host <id> [--dry-run]` | BB CLI user | Inspect skill copies or preview/archive copies on one machine | Plugin CLI runtime (`skills-hub-service.ts:697-723`, `skills-hub-service.ts:732-742`) |
 | Plugins | `bb tools plugins [--json]` | BB CLI user | Show installed CLI plugins across hosts | BB CLI runtime (`server.ts:2241-2244`, `server.ts:2624-2649`) |
 | OpenCode | `bb tools opencode [--json]` | BB CLI user | Report model/provider state and drift | BB CLI runtime (`server.ts:2245-2249`, `server.ts:2651-2677`) |
 | OpenCode | `bb tools opencode-sync [--from <host>] [--to <host>] [--dry-run] [--json]` | BB CLI user | Copy full provider/model/enabled state from source to other host(s) | BB CLI runtime (`server.ts:2251-2254`, `server.ts:2678-2695`) |
 | OpenCode | `bb tools opencode-clean [--host <id>] [--dry-run] [--json]` | BB CLI user | Remove known stale providers | BB CLI runtime (`server.ts:2256-2259`, `server.ts:2697-2704`) |
 | OpenCode | `bb tools opencode-set-default <modelId>` | BB CLI user | Set BB and host OpenCode default model | BB CLI runtime (`server.ts:2261-2264`, `server.ts:2705-2727`) |
 
-See the [feature pages](features/mcp-catalog.md), [skills](features/skills.md), [OpenCode](features/opencode.md), and [CLI plugins](features/cli-plugins.md) for behavior details.
+See the [feature pages](features/mcp-catalog.md), [legacy skills rollout](features/skills.md), [hub skills and categories](features/skills-hub.md), [OpenCode](features/opencode.md), and [CLI plugins](features/cli-plugins.md) for behavior details.
 
 <!-- lane-pilot:backlinks -->
 ## Referenced by
 
+- [Plugin RPC and Skills page runtime](api-runtime.md)
 - [Agent Tools architecture](architecture.md)
 - [Agent Tools deployment](deployment.md)
 - [CLI plugin inventory](features/cli-plugins.md)
 - [MCP server catalogue](features/mcp-catalog.md)
 - [OpenCode provider and model management](features/opencode.md)
+- [Hub skills and categories](features/skills-hub.md)
 - [Agent skill canon and rollout](features/skills.md)
 - [Agent Tools overview](overview.md)
