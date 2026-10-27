@@ -2,7 +2,7 @@
 // config and writes the ones the catalogue asks for. Writes are atomic
 // (temp file + rename) and always leave a timestamped backup behind.
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
-import { cleanupSkillHomes, countSkillHomes, packSkillDir, unpackSkill } from "./host-skills.ts";
+import { cleanupSkillHomes, countSkillHomes, listMachineSkills, packSkillDir, unpackSkill } from "./host-skills.ts";
 import { readFile, writeFile, rename, stat, chmod, mkdir, readdir, unlink, copyFile, cp, symlink, lstat, readlink, realpath, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
@@ -1213,7 +1213,7 @@ export default experimental_defineHostEntry({
         return { ok: result.ok, path: result.path, error: result.error };
       },
 
-      skill_homes_count: async () => ({ homes: await countSkillHomes() }),
+      skill_homes_count: async () => ({ homes: await countSkillHomes(), found: await listMachineSkills() }),
 
       skill_homes_cleanup: async ({ dryRun }) => cleanupSkillHomes(dryRun),
 

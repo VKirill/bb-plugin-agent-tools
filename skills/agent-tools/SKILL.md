@@ -33,7 +33,8 @@ bb tools skills-pull <skill> [--to <folder>]    # copy a hub skill into ~/skill-
 bb tools skills-move <skill> "Section/Subsection"   # place a skill by hand
 bb tools skills-classify [--wait]         # sort skills that have no category
 bb tools skills-remove <skill>            # move a skill from the hub to the archive
-bb tools skills-machines                  # skill copies still on machines
+bb tools skills-machines                  # skill copies still on machines, and which are missing on the hub
+bb tools skills-import --host <machine> [--dry-run]   # publish a machine's skills the hub lacks
 bb tools skills-cleanup --host <machine> [--dry-run]   # move them into a dated backup
 ```
 
@@ -69,6 +70,7 @@ the calling thread unless `--host` names another one.
   and single hyphens, a description over 1024 characters, more than 10 MB or
   1000 files. Inside a skill, refer to its own files with relative paths: the
   session copy does not live in `~/.agents/skills`.
+- After installing the plugin, move the machines' existing skills to the hub first (`skills-import` or «Move to the hub» on the Skills page), then clean up the copies.
 - Every publish and removal is committed to the skills git repository on the
   hub and pushed. A replaced or removed folder also goes to
   `~/.agents/skills-backups` on the hub.

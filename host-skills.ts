@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SKILL_TAR_EXCLUDES } from "./skill-tree.ts";
@@ -120,6 +120,30 @@ export async function countSkillHomes(home = os.homedir()): Promise<HomeCount[]>
     if (skills + links > 0) result.push({ id: location.id, path: `~/${location.path}`, skills, links });
   }
   return result;
+}
+
+export type FoundSkill = { name: string; path: string; home: string; mtime: number };
+
+/**
+ * Every skill folder (with SKILL.md) the CLI folders hold, links resolved to
+ * their real folder, one entry per name: the newest copy wins. This is what a
+ * machine would lose from BB sessions if it is not on the hub.
+ */
+export async function listMachineSkills(home = os.homedir()): Promise<FoundSkill[]> {
+  const byName = new Map<string, FoundSkill>();
+  for (const location of MACHINE_SKILL_HOMES) {
+    const dir = path.join(home, location.path);
+    for (const name of await entriesOf(dir, location.keep)) {
+      const real = await realpath(path.join(dir, name)).catch(() => null);
+      if (real === null) continue;
+      const info = await stat(path.join(real, "SKILL.md")).catch(() => null);
+      if (info === null || !info.isFile()) continue;
+      const found = { name, path: real, home: `~/${location.path}`, mtime: Math.round(info.mtimeMs) };
+      const current = byName.get(name);
+      if (current === undefined || found.mtime > current.mtime) byName.set(name, found);
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type CleanupResult = { backup: string | null; moved: Array<{ id: string; count: number }>; errors: string[] };

@@ -474,6 +474,10 @@ export const hostContract = defineRpcContract({
     input: z.object({}),
     output: z.object({
       homes: z.array(z.object({ id: z.string(), path: z.string(), skills: z.number(), links: z.number() })).max(32),
+      found: z
+        .array(z.object({ name: z.string().max(200), path: z.string().max(1000), home: z.string().max(200), mtime: z.number() }))
+        .max(3000)
+        .optional(),
     }),
   },
   /** Move every skill out of the CLI skill folders into a dated backup. */

@@ -173,7 +173,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
   const [pullHost, setPullHost] = useState("");
   const [pullTarget, setPullTarget] = useState("~/skill-drafts");
   const [removeOpen, setRemoveOpen] = useState(false);
-  const [cleanup, setCleanup] = useState<{ hostId: string; hostName: string; moved: Array<{ id: string; count: number }> } | null>(null);
+  const [cleanup, setCleanup] = useState<{ hostId: string; hostName: string; moved: Array<{ id: string; count: number }>; notOnHub: number } | null>(null);
 
   const act = useCallback(
     async (fn: () => Promise<SkillsHub | void>) => {
@@ -237,7 +237,8 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
   const reviewCount = skills.filter((skill) => skill.review !== null).length;
   const problemCount = skills.filter(blocking).length;
   const unplacedCount = skills.filter((skill) => skill.category === null && skill.review === null).length;
-  const leftovers = (hub?.machines ?? []).filter((machine) => machine.homes.length > 0);
+  const leftovers = (hub?.machines ?? []).filter((machine) => machine.homes.length > 0 || machine.notOnHub.length > 0);
+  const notOnHubTotal = leftovers.reduce((sum, machine) => sum + machine.notOnHub.length, 0);
 
   useEffect(() => {
     onAttention?.(reviewCount + problemCount + leftovers.length);
@@ -399,32 +400,75 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
         <div className="at-card px-3 py-2.5 text-sm">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Icon name="AlertTriangle" className="size-4 at-text-warning" />
-            <span className="font-medium">{t("На машинах остались копии навыков")}</span>
+            <span className="font-medium">
+              {notOnHubTotal > 0 ? t("На машинах есть навыки, которых нет на хабе") : t("На машинах остались копии навыков")}
+            </span>
             <span className="text-xs text-muted-foreground">
-              {t("BB и так отдаёт навыки хаба в каждую сессию — копии на машинах дают дубли.")}
+              {notOnHubTotal > 0
+                ? t("Перенесите их на хаб — тогда BB отдаст их в каждую сессию на любой машине. Потом очистите копии, чтобы не было дублей.")
+                : t("BB и так отдаёт навыки хаба в каждую сессию — копии на машинах дают дубли.")}
             </span>
           </div>
-          <ul className="mt-2 space-y-1.5">
+          <ul className="mt-2 divide-y divide-border/60">
             {leftovers.map((machine) => (
-              <li key={machine.hostId} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-medium">{machine.hostName}</span>
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {machine.homes.map((home) => `${home.path} ${home.skills + home.links}`).join(" · ")}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    act(async () => {
-                      const preview = await rpc.call("skills_machines_cleanup", { hostId: machine.hostId, dryRun: true });
-                      setCleanup({ hostId: machine.hostId, hostName: machine.hostName, moved: preview.moved });
-                      return preview.hub;
-                    })
-                  }
-                >
-                  {t("Очистить…")}
-                </Button>
+              <li key={machine.hostId} className="py-2 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span className="font-medium">{machine.hostName}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {machine.homes.map((home) => `${home.path} ${home.skills + home.links}`).join(" · ")}
+                  </span>
+                  {machine.notOnHub.length > 0 ? (
+                    <Button
+                      size="sm"
+                      className="at-accent"
+                      disabled={busy}
+                      onClick={() =>
+                        act(async () => {
+                          const result = await rpc.call("skills_machines_import", { hostId: machine.hostId, names: null });
+                          const done = result.results.filter((item) => item.ok).length;
+                          const failed = result.results.filter((item) => !item.ok);
+                          setNotice(tp("Перенесено на хаб: {0}", done));
+                          if (failed.length > 0) {
+                            setError(
+                              tp("Не перенесено ({0}): {1}", failed.length, failed
+                                .map((item) => `${item.name} — ${item.problems.filter((problem) => problem.blocking).map((problem) => problemText(problem.code, problem.detail)).join(", ") || item.error || ""}`)
+                                .join("; ")),
+                            );
+                          }
+                          return result.hub;
+                        })
+                      }
+                    >
+                      {tp("Перенести на хаб · {0}", machine.notOnHub.length)}
+                    </Button>
+                  ) : null}
+                  {machine.homes.length > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        act(async () => {
+                          const preview = await rpc.call("skills_machines_cleanup", { hostId: machine.hostId, dryRun: true });
+                          setCleanup({ hostId: machine.hostId, hostName: machine.hostName, moved: preview.moved, notOnHub: machine.notOnHub.length });
+                          return preview.hub;
+                        })
+                      }
+                    >
+                      {t("Очистить…")}
+                    </Button>
+                  ) : null}
+                </div>
+                {machine.notOnHub.length > 0 ? (
+                  <details className="mt-1.5">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                      {tp("Только на этой машине: {0}", machine.notOnHub.length)}
+                    </summary>
+                    <p className="mt-1 break-words font-mono text-xs text-muted-foreground">
+                      {machine.notOnHub.map((skill) => skill.name).join(", ")}
+                    </p>
+                  </details>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -949,6 +993,11 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
               </li>
             ))}
           </ul>
+          {(cleanup?.notOnHub ?? 0) > 0 ? (
+            <p className="text-xs at-text-warning">
+              {tp("{0} из них нет на хабе: после очистки они пропадут из сессий BB (останутся только в архиве). Сначала перенесите их на хаб.", cleanup?.notOnHub ?? 0)}
+            </p>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             {t("Вне BB (терминал, codex exec, writer-линии) этих навыков больше не будет.")}
           </p>

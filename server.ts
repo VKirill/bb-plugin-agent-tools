@@ -2322,6 +2322,13 @@ export default async function plugin(bb: BbPluginApi) {
     await publish();
   });
 
+  // First start after install: sweep the machines now instead of waiting for the hourly schedule.
+  void (async () => {
+    if ((await readSnapshots()).length > 0) return;
+    await scanAll(null);
+    await publish();
+  })().catch((cause: unknown) => bb.log.warn(`first scan: ${String(cause)}`));
+
   // ------------------------------------------------------------------ cli
   const usage = [
     "Usage:",
@@ -2466,6 +2473,11 @@ export default async function plugin(bb: BbPluginApi) {
       { name: "skills-classify", summary: t("Разложить навыки без категории"), usage: "bb tools skills-classify [--wait]" },
       { name: "skills-remove", summary: t("Убрать навык с хаба в архив"), usage: t("bb tools skills-remove <навык>") },
       { name: "skills-machines", summary: t("Копии навыков на машинах"), usage: "bb tools skills-machines [--json]" },
+      {
+        name: "skills-import",
+        summary: t("Перенести на хаб навыки, которых там нет"),
+        usage: t("bb tools skills-import --host <машина> [<навык>...] [--dry-run]"),
+      },
       {
         name: "skills-cleanup",
         summary: t("Убрать копии навыков с машины в архив"),

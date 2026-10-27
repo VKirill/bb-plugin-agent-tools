@@ -81,10 +81,14 @@ const hubSkillViewSchema = z.object({
     .nullable(),
 });
 
+const foundSkillSchema = z.object({ name: z.string(), path: z.string(), home: z.string(), mtime: z.number() });
+
 const machineHomesSchema = z.object({
   hostId: z.string(),
   hostName: z.string(),
   homes: z.array(z.object({ id: z.string(), path: z.string(), skills: z.number(), links: z.number() })),
+  /** Skills this machine's CLI folders hold that the hub does not have. */
+  notOnHub: z.array(foundSkillSchema).default([]),
   error: z.string().nullable(),
   at: z.number(),
 });
@@ -171,6 +175,15 @@ export const skillsRpcContract = {
     output: publishResultSchema,
   },
   skills_machines_refresh: { input: z.null(), output: skillsHubSchema },
+  skills_machines_import: {
+    input: z.object({ hostId: z.string(), names: z.array(z.string().max(200)).max(3000).nullable() }),
+    output: z.object({
+      results: z.array(
+        z.object({ name: z.string(), ok: z.boolean(), error: z.string().nullable(), problems: z.array(problemSchema) }),
+      ),
+      hub: skillsHubSchema,
+    }),
+  },
   skills_machines_cleanup: {
     input: z.object({ hostId: z.string(), dryRun: z.boolean() }),
     output: z.object({
@@ -392,15 +405,25 @@ export function createSkillsHubService(
     const result: MachineHomes[] = [];
     for (const item of hosts) {
       try {
-        const homes = (await host.call("skill_homes_count", {}, { hostId: item.id, timeoutMs: 30_000 })) as {
+        const homes = (await host.call("skill_homes_count", {}, { hostId: item.id, timeoutMs: 60_000 })) as {
           homes: MachineHomes["homes"];
+          found?: MachineHomes["notOnHub"];
         };
-        result.push({ hostId: item.id, hostName: item.name, homes: homes.homes, error: null, at: Date.now() });
+        const onHub = new Set((await hubSkills()).map((skill) => skill.name));
+        result.push({
+          hostId: item.id,
+          hostName: item.name,
+          homes: homes.homes,
+          notOnHub: (homes.found ?? []).filter((skill) => !onHub.has(skill.name)),
+          error: null,
+          at: Date.now(),
+        });
       } catch (cause) {
         result.push({
           hostId: item.id,
           hostName: item.name,
           homes: [],
+          notOnHub: [],
           error: cause instanceof Error ? cause.message.slice(0, 200) : String(cause),
           at: Date.now(),
         });
@@ -447,7 +470,10 @@ export function createSkillsHubService(
       }),
       tree: store.tree,
       classifier: { ...state, running: state.running || classifier.busy, model: config.classifierModel },
-      machines: machines ?? [],
+      machines: (machines ?? []).map((machine) => ({
+        ...machine,
+        notOnHub: (machine.notOnHub ?? []).filter((skill) => !skills.some((item) => item.name === skill.name)),
+      })),
     };
   }
 
@@ -521,6 +547,30 @@ export function createSkillsHubService(
     }
   }
 
+  /** Publishes the skills a machine has and the hub lacks, one by one. */
+  async function importFromMachine(hostId: string, names: string[] | null, dryRun = false) {
+    const machines = (await bb.storage.kv.get<MachineHomes[]>(KV.machines)) ?? (await refreshMachines());
+    const machine = machines.find((item) => item.hostId === hostId);
+    if (machine === undefined) throw new Error("unknown machine; refresh the machines first");
+    const onHub = new Set((await hubSkills(true)).map((skill) => skill.name));
+    const todo = (machine.notOnHub ?? []).filter((skill) => !onHub.has(skill.name) && (names === null || names.includes(skill.name)));
+    const results: Array<{ name: string; ok: boolean; error: string | null; problems: Array<{ code: string; detail: string; blocking: boolean }> }> = [];
+    for (const skill of todo) {
+      const result = await publishFromHost(hostId, skill.path, dryRun, `import from ${machine.hostName}`);
+      results.push({ name: skill.name, ok: result.ok, error: result.error, problems: result.problems });
+    }
+    if (!dryRun) {
+      invalidate();
+      await refreshMachines();
+    }
+    return results;
+  }
+
+  // First open after install: nothing was counted yet, so look at the machines now.
+  void (async () => {
+    if ((await bb.storage.kv.get<MachineHomes[]>(KV.machines)) === null) await refreshMachines();
+  })().catch((cause: unknown) => bb.log.warn(`skills machines first scan: ${String(cause)}`));
+
   const handlers = {
     skills_hub: async () => view(),
     skills_hub_detail: async ({ name }: { name: string }) => {
@@ -566,6 +616,10 @@ export function createSkillsHubService(
     skills_machines_refresh: async () => {
       await refreshMachines();
       return view();
+    },
+    skills_machines_import: async ({ hostId, names }: { hostId: string; names: string[] | null }) => {
+      const results = await importFromMachine(hostId, names);
+      return { results, hub: await view(true) };
     },
     skills_machines_cleanup: async ({ hostId, dryRun }: { hostId: string; dryRun: boolean }) => {
       const result = (await host.call("skill_homes_cleanup", { dryRun }, { hostId, timeoutMs: 180_000 })) as {
@@ -703,9 +757,23 @@ export function createSkillsHubService(
               ? `${machine.hostName}: ${machine.error}`
               : machine.homes.length === 0
                 ? tp("{0}: чисто", machine.hostName)
-                : `${machine.hostName}: ${machine.homes.map((home) => `${home.path} ${home.skills}+${home.links}`).join(", ")}`,
+                : `${machine.hostName}: ${machine.homes.map((home) => `${home.path} ${home.skills}+${home.links}`).join(", ")}` +
+                  (machine.notOnHub.length > 0 ? tp("; нет на хабе: {0}", machine.notOnHub.length) : ""),
           )
           .join("\n");
+      }
+      case "skills-import": {
+        if (hostId === null) return t("Укажите машину: bb tools skills-import --host <машина> [--dry-run]");
+        await refreshMachines();
+        const results = await importFromMachine(hostId, positional.length > 0 ? positional : null, dryRun);
+        if (json) return JSON.stringify(results, null, 2);
+        if (results.length === 0) return t("На этой машине нет навыков, которых не хватает на хабе");
+        return [
+          dryRun ? t("Проверка переноса на хаб:") : t("Перенос на хаб:"),
+          ...results.map((item) =>
+            item.ok ? `  ✓ ${item.name}` : `  ✗ ${item.name}: ${item.problems.filter((problem) => problem.blocking).map((problem) => problem.detail).join("; ") || item.error}`,
+          ),
+        ].join("\n");
       }
       case "skills-cleanup": {
         if (hostId === null) return t("Укажите машину: bb tools skills-cleanup --host <машина> [--dry-run]");
@@ -738,5 +806,6 @@ export const SKILLS_CLI_USAGE = [
   "  bb tools skills-classify [--wait]           Разложить навыки без категории",
   "  bb tools skills-remove <навык>              Убрать навык с хаба в архив",
   "  bb tools skills-machines                    Копии навыков на машинах",
+  "  bb tools skills-import --host <машина> [--dry-run]  Перенести на хаб навыки, которых там нет",
   "  bb tools skills-cleanup --host <машина> [--dry-run]  Убрать копии с машины в архив",
 ];

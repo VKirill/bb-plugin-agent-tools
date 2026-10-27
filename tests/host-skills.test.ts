@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { cleanupSkillHomes, countSkillHomes, packSkillDir, unpackSkill } from "../host-skills.ts";
+import { cleanupSkillHomes, countSkillHomes, listMachineSkills, packSkillDir, unpackSkill } from "../host-skills.ts";
+import { utimesSync } from "node:fs";
 
 function skill(dir: string, name: string): void {
   mkdirSync(path.join(dir, name), { recursive: true });
@@ -59,4 +60,16 @@ test("pack a draft and unpack it into drafts, keeping the previous copy", async 
   assert.ok(second.previous !== null && existsSync(second.previous));
   const missing = await packSkillDir(path.join(home, "work"), "tar");
   assert.equal(missing.ok, false);
+});
+
+test("machine skills: links resolve, newest copy wins, CLI-owned folders are skipped", async () => {
+  const home = fakeHome();
+  skill(path.join(home, ".qwen/skills"), "seo");
+  const old = new Date("2020-01-01");
+  utimesSync(path.join(home, ".agents/skills/seo/SKILL.md"), old, old);
+  const found = await listMachineSkills(home);
+  assert.deepEqual(found.map((item) => item.name), ["edo", "ru-text", "seo"]);
+  assert.equal(found.find((item) => item.name === "seo")?.home, "~/.qwen/skills");
+  assert.equal(found.find((item) => item.name === "ru-text")?.path.endsWith(".agents/skills/ru-text"), true);
+  assert.equal(found.some((item) => item.name === "pdf" || item.name === "synced"), false);
 });
