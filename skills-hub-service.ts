@@ -332,6 +332,16 @@ export function createSkillsHubService(
     log: (message) => bb.log.info(message),
   });
 
+  // A reload (update, restart) drops a run in progress but leaves its flag in
+  // KV; clear it and pick the queue up again.
+  void (async () => {
+    const state = await readState();
+    if (!state.running) return;
+    await bb.storage.kv.set(KV.classifier, { ...state, running: false });
+    bb.log.info("skill classifier: resuming after a reload");
+    void classifier.run();
+  })().catch((cause: unknown) => bb.log.warn(`skill classifier resume: ${String(cause)}`));
+
   // ------------------------------------------------------------- tools
   bb.agents.registerTool({
     name: TOOL_TREE,
