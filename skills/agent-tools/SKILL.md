@@ -59,9 +59,13 @@ the calling thread unless `--host` names another one.
 
 - The canon is the hub's BB data dir, `~/.bb/skills` on the BB server. BB
   registers user skills from there and copies them into every session of every
-  provider on every machine. Do not create skills in `~/.agents/skills`,
-  `~/.claude/skills` or a machine's `~/.bb/skills`: BB does not read them, and
-  CLIs that do read them show the same skill twice.
+  provider on every machine. Create and change skills through the hub (below),
+  not by writing into `~/.agents/skills`, `~/.claude/skills` or a machine's
+  `~/.bb/skills`: BB does not read those, and CLIs that do show the skill twice.
+- The plugin leaves skill folders on machines alone. `skills-import` and «Move
+  to the hub» only copy what the hub lacks; the originals stay. Removing
+  machine copies (`skills-cleanup`, «Clean up…») is offered only when the
+  setting «Skills: offer to remove machine copies» is on.
 - To change a skill: `bb tools skills-pull <skill>`, edit the copy in
   `~/skill-drafts/<skill>`, then `bb tools skills-publish ~/skill-drafts/<skill>`.
   A new skill is written in any folder and published the same way.
@@ -70,10 +74,11 @@ the calling thread unless `--host` names another one.
   and single hyphens, a description over 1024 characters, more than 10 MB or
   1000 files. Inside a skill, refer to its own files with relative paths: the
   session copy does not live in `~/.agents/skills`.
-- After installing the plugin, move the machines' existing skills to the hub first (`skills-import` or «Move to the hub» on the Skills page), then clean up the copies.
+- After installing the plugin, copy the machines' existing skills to the hub (`skills-import` or «Move to the hub» on the Skills page).
 - Every publish and removal is committed to the skills git repository on the
   hub and pushed. A replaced or removed folder also goes to
   `~/.agents/skills-backups` on the hub.
+- The classifier provider and model are chosen on the plugin's Settings page (any BB provider; empty model = the provider's default).
 - Categories (section → subsection) belong to the plugin, not to the skill
   files. A new skill is placed next to its siblings with the same name prefix,
   otherwise by a small model in a hidden thread; unsure answers wait in review.

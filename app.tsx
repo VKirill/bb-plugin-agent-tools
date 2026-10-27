@@ -33,6 +33,7 @@ import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./openco
 import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, languageFromLocale, translateDiagnostic } from "./i18n";
 import { EN } from "./i18n.en";
 import { SkillsPage } from "./skills-page";
+import { SettingsPage } from "./settings-page";
 import "./app.css";
 
 setDictionary(EN);
@@ -915,13 +916,14 @@ function Section({
   );
 }
 
-type ToolSection = "skills" | "mcp" | "plugins" | "opencode";
+type ToolSection = "skills" | "mcp" | "plugins" | "opencode" | "settings";
 
 const TOOL_SECTIONS: Array<{ id: ToolSection; icon: string }> = [
   { id: "skills", icon: "Brain" },
   { id: "mcp", icon: "Plug02" },
   { id: "plugins", icon: "Puzzle" },
   { id: "opencode", icon: "ComputerTerminal01" },
+  { id: "settings", icon: "Settings" },
 ];
 
 function sectionTitle(section: ToolSection): string {
@@ -934,6 +936,8 @@ function sectionTitle(section: ToolSection): string {
       return t("Плагины CLI");
     case "opencode":
       return "OpenCode";
+    case "settings":
+      return t("Настройки");
   }
 }
 
@@ -1015,7 +1019,7 @@ function DeviceList({
           </button>
         ))}
       </div>
-      {section === "skills" ? (
+      {section === "skills" || section === "settings" ? (
         <p className="px-2 text-xs text-muted-foreground">
           {t("Навыки живут на хабе: BB отдаёт их в каждую сессию на любой машине.")}
         </p>
@@ -3364,12 +3368,13 @@ function CatalogPage() {
             mcp: data.pending.length,
             plugins: 0,
             opencode: data.opencode?.drift?.length ?? 0,
+            settings: 0,
           }}
         />
         <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-scroll md:[scrollbar-gutter:stable]">
           <div className="mx-auto box-border w-full max-w-7xl px-3 pb-8 pt-3 md:px-5 md:pt-4">
             <SectionStrip section={toolTab} onSection={setToolTab} />
-            {toolTab === "skills" ? null : <HostStrip data={data} selected={selected} onSelect={setSelected} />}
+            {toolTab === "skills" || toolTab === "settings" ? null : <HostStrip data={data} selected={selected} onSelect={setSelected} />}
             <Tabs
               value={toolTab}
               onValueChange={(value) =>
@@ -3380,7 +3385,7 @@ function CatalogPage() {
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
                 <div className="min-w-0">
                   <h1 className="truncate text-xl font-medium">
-                    {toolTab === "skills" ? t("Навыки") : machine === null ? sectionTitle(toolTab) : `${sectionTitle(toolTab)} · ${machine.name}`}
+                    {toolTab === "skills" || toolTab === "settings" ? sectionTitle(toolTab) : machine === null ? sectionTitle(toolTab) : `${sectionTitle(toolTab)} · ${machine.name}`}
                   </h1>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {plural(data.hosts.length, ["машина", "машины", "машин"])} · {t("обход")}{" "}
@@ -3546,7 +3551,10 @@ function CatalogPage() {
             )}
               </TabsContent>
               <TabsContent value="skills" className="mt-0">
-                <SkillsPage onAttention={setSkillsAttention} />
+                <SkillsPage onAttention={setSkillsAttention} onOpenSettings={() => setToolTab("settings")} />
+              </TabsContent>
+              <TabsContent value="settings" className="mt-0">
+                <SettingsPage />
               </TabsContent>
               <TabsContent value="plugins" className="mt-4">
                 <PluginsTabContent data={data} selected={selected} />

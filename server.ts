@@ -509,21 +509,6 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Через запятую. По умолчанию secondary."),
       default: "secondary",
     },
-    skillsFanOutAuto: {
-      type: "boolean",
-      label: t("Скиллы: обновлять по расписанию"),
-      description: t(
-        "Выключено — плагин сам ничего не копирует в канон и не раскладывает дома: только кнопка «Обновить скиллы везде» или bb tools skills-fanout. Включите, чтобы часовой обход забирал более новые и новые скиллы в канон, синхронизировал git и раскладывал дома CLI.",
-      ),
-      default: false,
-    },
-    skillsFanOutPluginNames: {
-      type: "boolean",
-      label: t("Скиллы: раскатывать и то, что отдают плагины"),
-      description:
-        t("Включено — в домах CLI лежит весь канон, даже если имя уже приходит из плагина-маркетплейса: так навык виден и в CLI мимо BB. Цена — в сессиях BB такое имя показано дважды. Выключите, чтобы список навыков в BB был без двойников."),
-      default: true,
-    },
     skillsClassifierProvider: {
       type: "string",
       label: t("Навыки: провайдер классификатора"),
@@ -542,32 +527,37 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Раз в час новые навыки без категории уходят классификатору. Выключено — только по кнопке «Разложить новые»."),
       default: true,
     },
+    skillsOfferCleanup: {
+      type: "boolean",
+      label: t("Навыки: предлагать убрать копии с машин"),
+      description: t("Выключено — плагин не трогает папки навыков на машинах: только копирует недостающие навыки на хаб. Включите, чтобы на странице «Навыки» появилась кнопка «Очистить…» для дублей."),
+      default: false,
+    },
     skillsClassifierProjectId: {
       type: "string",
       label: t("Навыки: проект для треда классификатора"),
       description: t("ID проекта BB. Пусто — личный проект."),
       default: "",
     },
-    skillsSyncRemote: {
-      type: "string",
-      label: t("Скиллы: git-remote канона"),
-      description:
-        t("Любой git-URL (свой GitHub/GitLab/сервер). Пусто — синк выключен. Плагин не привязан к конкретному хостингу."),
-      secret: true,
-      default: "",
-    },
   });
   // Настройки читаем в момент использования, а не один раз при старте: иначе
   //новый ключ, вписанный в интерфейсе, начинал работать только после перезагрузки.
   const readConfig = () => settings.get();
+  // The skills canon moved to the BB hub (0.2.9). The machine-canon code below
+  // stays for old CLI calls but never runs on its own and never writes.
+  const LEGACY_SKILLS = { fanOutAuto: false, pluginNames: true, syncRemote: "" } as const;
   const host = bb.hosts.experimental_client({ contract: hostContract });
   const skillsHub = createSkillsHubService(bb, host as unknown as Parameters<typeof createSkillsHubService>[1], async () => {
     const config = await readConfig();
     return {
       classifierProvider: config.skillsClassifierProvider.trim() || "claude-code",
-      classifierModel: config.skillsClassifierModel.trim() || "claude-haiku-5-5",
+      classifierModel: config.skillsClassifierModel.trim(),
       classifierProjectId: config.skillsClassifierProjectId,
+      classifierAuto: config.skillsClassifierAuto,
+      offerCleanup: config.skillsOfferCleanup,
     };
+  }, async (patch) => {
+    await settings.experimental_set(patch);
   });
   // Only the classifier's hidden threads get the category tools; every other
   // thread keeps this plugin's skill as before.
@@ -1126,8 +1116,8 @@ export default async function plugin(bb: BbPluginApi) {
       metamcp: metamcpCache,
       probes: await readProbes(),
       autoSync,
-      skillsFanOutAuto: config.skillsFanOutAuto,
-      skillsSyncRemoteConfigured: config.skillsSyncRemote.trim() !== "",
+      skillsFanOutAuto: LEGACY_SKILLS.fanOutAuto,
+      skillsSyncRemoteConfigured: LEGACY_SKILLS.syncRemote !== "",
       lang: currentLang,
       lastScanAt: (await bb.storage.kv.get<number>("lastScanAt")) ?? null,
       lastSyncAt: (await bb.storage.kv.get<number>("lastSyncAt")) ?? null,
@@ -1242,7 +1232,7 @@ export default async function plugin(bb: BbPluginApi) {
       try {
         // Пустой список = машина считает плагинные имена сама. Спецзначение
         // "*" означает «исключений нет»: раскатываем канон целиком.
-        const pluginNames = (includePluginNames ?? (await readConfig()).skillsFanOutPluginNames) ? ["*"] : [];
+        const pluginNames = (includePluginNames ?? LEGACY_SKILLS.pluginNames) ? ["*"] : [];
         const result = await callHostTimed(
           (timeoutMs) =>
             host.call(
@@ -1290,7 +1280,7 @@ export default async function plugin(bb: BbPluginApi) {
    * ok:false и исключение host.call оба идут в errors/failed.
    */
   async function runSkillsCanonSync(hostId: string | null) {
-    const remote = (await readConfig()).skillsSyncRemote.trim();
+    const remote = LEGACY_SKILLS.syncRemote;
     if (remote === "") {
       return {
         remoteConfigured: false,
@@ -1423,8 +1413,8 @@ export default async function plugin(bb: BbPluginApi) {
     const hostsList = await bb.sdk.hosts.list();
     const destRoot = bbServerSkillsDir(bb.server.experimental_dataDir);
     const canonRoot = canonSkillsDir();
-    const remote = (await readConfig()).skillsSyncRemote.trim();
-    const skipPlugins = !(includePluginNames ?? (await readConfig()).skillsFanOutPluginNames);
+    const remote = LEGACY_SKILLS.syncRemote;
+    const skipPlugins = !(includePluginNames ?? LEGACY_SKILLS.pluginNames);
     const snapshots = await readSkillsSnapshots();
     const pluginNames = skipPlugins
       ? [...new Set(snapshots.flatMap((item) => item.scan?.pluginNames ?? []))].sort()
@@ -1582,7 +1572,7 @@ export default async function plugin(bb: BbPluginApi) {
   async function runSkillsRollout(hostId: string | null, dryRun: boolean, includePluginNames?: boolean) {
     await scanAll(hostId);
     const promote = await runPromoteToCanon(hostId, dryRun);
-    const remoteConfigured = (await readConfig()).skillsSyncRemote.trim() !== "";
+    const remoteConfigured = LEGACY_SKILLS.syncRemote !== "";
     let synced = 0;
     let syncFailed = 0;
     const errors: string[] = [...promote.errors];
@@ -2222,7 +2212,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true, message: result.message, overview: await publish() };
     },
     skills_sync: async ({ hostId }) => {
-      const remote = (await readConfig()).skillsSyncRemote.trim();
+      const remote = LEGACY_SKILLS.syncRemote;
       if (remote === "") throw new Error(t("Синк скиллов выключен: не задан git-remote в настройках плагина"));
       const result = await runSkillsCanonSync(hostId);
       await scanAll(hostId, result.failedHostIds);
@@ -2304,7 +2294,7 @@ export default async function plugin(bb: BbPluginApi) {
       return publish();
     },
     set_skills_fanout_auto: async ({ enabled }) => {
-      await settings.experimental_set({ skillsFanOutAuto: enabled });
+      void enabled; // the machine canon is gone; kept for old clients
       return publish();
     },
   });
@@ -2482,36 +2472,6 @@ export default async function plugin(bb: BbPluginApi) {
         name: "skills-cleanup",
         summary: t("Убрать копии навыков с машины в архив"),
         usage: t("bb tools skills-cleanup --host <машина> [--dry-run]"),
-      },
-      {
-        name: "skills",
-        summary: t("Скиллы вне канона, с --canon — сам канон по машинам"),
-        usage: "bb tools skills [--host <id>] [--canon]",
-      },
-      {
-        name: "skills-adopt",
-        summary: t("Перенести скилл в канон или перекрыть симлинком"),
-        usage: t("bb tools skills-adopt <папка> <имя> --host <id> [--link|--delete|--take|--unlink]"),
-      },
-      {
-        name: "skills-fanout",
-        summary: t("Новее и новые в канон, синк git, дома CLI"),
-        usage: "bb tools skills-fanout [--host <id>] [--dry-run] [--all]",
-      },
-      {
-        name: "skills-backups",
-        summary: t("Архив снимков скиллов"),
-        usage: "bb tools skills-backups [--host <id>] [--json]",
-      },
-      {
-        name: "skills-restore",
-        summary: t("Вернуть снимок из архива в канон"),
-        usage: t("bb tools skills-restore <id-снимка> --host <id>"),
-      },
-      {
-        name: "skills-sync",
-        summary: t("Синк канона скиллов с git-remote"),
-        usage: "bb tools skills-sync [--host <id>]",
       },
       {
         name: "plugins",
@@ -2767,7 +2727,17 @@ export default async function plugin(bb: BbPluginApi) {
             t("Язык переключён. Подписи настроек и команд обновятся после перезагрузки плагина."),
           );
         }
-        case "skills": {
+        case "skills":
+        case "skills-adopt":
+        case "skills-fanout":
+        case "skills-backups":
+        case "skills-restore":
+        case "skills-sync":
+          return {
+            exitCode: 1,
+            stderr: t("Канона навыков на машинах больше нет: навыки живут на хабе BB, плагин не пишет в папки навыков на машинах. Смотрите bb tools skills-hub."),
+          };
+        case "skills-legacy-unused": {
           const current = await overview();
           // Без флага показываем только то, что лежит мимо канона; с ним — сам
           // канон по машинам: одна строка на скилл, видно паритет целиком.
@@ -2822,7 +2792,7 @@ export default async function plugin(bb: BbPluginApi) {
                   .join("\n"),
           );
         }
-        case "skills-adopt": {
+        case "legacy-skills-adopt": {
           const [locationId, name] = args;
           if (locationId === undefined || name === undefined || args.length !== 2) break;
           if (hostId === null) {
@@ -2853,7 +2823,7 @@ export default async function plugin(bb: BbPluginApi) {
                   : t("перенесён в ~/.agents/skills");
           return reply({ ok: true }, tp("Скилл {0}: {1} ({2} в ожидании)", name, done, current.badge));
         }
-        case "skills-fanout": {
+        case "legacy-skills-fanout": {
           const result = await runSkillsRollout(hostId, dryRun, argv.includes("--all") ? true : undefined);
           const current = await overview();
           return reply(
@@ -2874,7 +2844,7 @@ export default async function plugin(bb: BbPluginApi) {
             }),
           );
         }
-        case "skills-backups": {
+        case "legacy-skills-backups": {
           const result = await runSkillsBackups(hostId);
           return reply(
             result,
@@ -2888,7 +2858,7 @@ export default async function plugin(bb: BbPluginApi) {
                   .join("\n"),
           );
         }
-        case "skills-restore": {
+        case "legacy-skills-restore": {
           const id = args[0];
           if (id === undefined || args.length !== 1) break;
           if (hostId === null) return { exitCode: 1, stderr: t("Укажите машину: --host <id>") };
@@ -2898,8 +2868,8 @@ export default async function plugin(bb: BbPluginApi) {
           await publish();
           return reply(result, result.message ?? t("Снимок восстановлен"));
         }
-        case "skills-sync": {
-          const remote = (await readConfig()).skillsSyncRemote.trim();
+        case "legacy-skills-sync": {
+          const remote = LEGACY_SKILLS.syncRemote;
           if (remote === "") throw new Error(t("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)"));
           const result = await runSkillsCanonSync(hostId);
           await scanAll(hostId, result.failedHostIds);

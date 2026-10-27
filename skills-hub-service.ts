@@ -117,6 +117,17 @@ export const skillsHubSchema = z.object({
     model: z.string(),
   }),
   machines: z.array(machineHomesSchema),
+  offerCleanup: z.boolean(),
+});
+
+const skillsSettingsSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  auto: z.boolean(),
+  projectId: z.string(),
+  offerCleanup: z.boolean(),
+  providers: z.array(z.object({ id: z.string(), label: z.string(), available: z.boolean() })),
+  projects: z.array(z.object({ id: z.string(), name: z.string() })),
 });
 
 const detailSchema = hubSkillViewSchema.extend({
@@ -174,6 +185,24 @@ export const skillsRpcContract = {
     input: z.object({ hostId: z.string(), path: z.string().max(500), dryRun: z.boolean() }),
     output: publishResultSchema,
   },
+  skills_settings: { input: z.null(), output: skillsSettingsSchema },
+  skills_settings_set: {
+    input: z.object({
+      provider: z.string().max(120).optional(),
+      model: z.string().max(200).optional(),
+      auto: z.boolean().optional(),
+      projectId: z.string().max(120).optional(),
+      offerCleanup: z.boolean().optional(),
+    }),
+    output: skillsSettingsSchema,
+  },
+  skills_provider_models: {
+    input: z.object({ providerId: z.string().max(120) }),
+    output: z.object({
+      models: z.array(z.object({ id: z.string(), label: z.string(), description: z.string() })),
+      error: z.string().nullable(),
+    }),
+  },
   skills_machines_refresh: { input: z.null(), output: skillsHubSchema },
   skills_machines_import: {
     input: z.object({ hostId: z.string(), names: z.array(z.string().max(200)).max(3000).nullable() }),
@@ -209,7 +238,18 @@ export type SkillsHubConfig = {
   classifierProvider: string;
   classifierModel: string;
   classifierProjectId: string;
+  classifierAuto: boolean;
+  /** Off by default: the plugin never offers to touch skill folders on machines. */
+  offerCleanup: boolean;
 };
+
+export type SkillsHubConfigPatch = Partial<{
+  skillsClassifierProvider: string;
+  skillsClassifierModel: string;
+  skillsClassifierProjectId: string;
+  skillsClassifierAuto: boolean;
+  skillsOfferCleanup: boolean;
+}>;
 
 const CACHE_MS = 15_000;
 const KV = {
@@ -224,6 +264,7 @@ export function createSkillsHubService(
   bb: BbPluginApi,
   host: HostCaller,
   readConfig: () => Promise<SkillsHubConfig>,
+  saveConfig: (patch: SkillsHubConfigPatch) => Promise<void>,
 ) {
   const root = bbServerSkillsDir(bb.server.experimental_dataDir);
   let cache: { at: number; skills: HubSkill[] } | null = null;
@@ -311,7 +352,8 @@ export function createSkillsHubService(
       const result = (await bb.sdk.threads.spawn({
         projectId: await personalProjectId(),
         providerId: config.classifierProvider,
-        model: config.classifierModel,
+        // Empty: the provider's own default model.
+        ...(config.classifierModel !== "" ? { model: config.classifierModel } : {}),
         environment: { type: "project-default" },
         visibility: "hidden",
         title: "Agent Tools: skill categories",
@@ -469,7 +511,8 @@ export function createSkillsHubService(
         };
       }),
       tree: store.tree,
-      classifier: { ...state, running: state.running || classifier.busy, model: config.classifierModel },
+      classifier: { ...state, running: state.running || classifier.busy, model: config.classifierModel || `${config.classifierProvider} (default)` },
+      offerCleanup: config.offerCleanup,
       machines: (machines ?? []).map((machine) => ({
         ...machine,
         notOnHub: (machine.notOnHub ?? []).filter((skill) => !skills.some((item) => item.name === skill.name)),
@@ -571,7 +614,68 @@ export function createSkillsHubService(
     if ((await bb.storage.kv.get<MachineHomes[]>(KV.machines)) === null) await refreshMachines();
   })().catch((cause: unknown) => bb.log.warn(`skills machines first scan: ${String(cause)}`));
 
+  async function settingsView() {
+    const config = await readConfig();
+    const providers = ((await bb.sdk.providers.list().catch(() => [])) as unknown as Array<{ id: string; displayName?: string; available?: boolean }>).map(
+      (item) => ({ id: item.id, label: item.displayName ?? item.id, available: item.available !== false }),
+    );
+    const projectList = (await bb.sdk.projects.list().catch(() => [])) as unknown as
+      | Array<{ id: string; name?: string; kind?: string }>
+      | { projects: Array<{ id: string; name?: string; kind?: string }> };
+    const projects = (Array.isArray(projectList) ? projectList : projectList.projects).map((item) => ({
+      id: item.id,
+      name: item.kind === "personal" ? `${item.name ?? item.id} (personal)` : (item.name ?? item.id),
+    }));
+    return {
+      provider: config.classifierProvider,
+      model: config.classifierModel,
+      auto: config.classifierAuto,
+      projectId: config.classifierProjectId,
+      offerCleanup: config.offerCleanup,
+      providers,
+      projects,
+    };
+  }
+
+  async function providerModels(providerId: string) {
+    try {
+      const result = (await bb.sdk.providers.models({ providerId })) as unknown as
+        | Array<{ id: string; model?: string; displayName?: string; description?: string }>
+        | { models?: Array<{ id: string; model?: string; displayName?: string; description?: string }> };
+      const list = Array.isArray(result) ? result : (result.models ?? []);
+      return {
+        models: list.map((item) => ({
+          id: item.model ?? item.id,
+          label: item.displayName ?? item.model ?? item.id,
+          description: item.description ?? "",
+        })),
+        error: null,
+      };
+    } catch (cause) {
+      return { models: [], error: cause instanceof Error ? cause.message.slice(0, 300) : String(cause) };
+    }
+  }
+
   const handlers = {
+    skills_settings: async () => settingsView(),
+    skills_settings_set: async (input: { provider?: string; model?: string; auto?: boolean; projectId?: string; offerCleanup?: boolean }) => {
+      const before = await readConfig();
+      await saveConfig({
+        ...(input.provider !== undefined ? { skillsClassifierProvider: input.provider } : {}),
+        ...(input.model !== undefined ? { skillsClassifierModel: input.model } : {}),
+        ...(input.auto !== undefined ? { skillsClassifierAuto: input.auto } : {}),
+        ...(input.projectId !== undefined ? { skillsClassifierProjectId: input.projectId } : {}),
+        ...(input.offerCleanup !== undefined ? { skillsOfferCleanup: input.offerCleanup } : {}),
+      });
+      const after = await readConfig();
+      // A new model or provider starts a new classifier thread with the next skill.
+      if (after.classifierProvider !== before.classifierProvider || after.classifierModel !== before.classifierModel) {
+        const state = await readState();
+        await bb.storage.kv.set(KV.classifier, { ...state, threadId: null, count: 0 });
+      }
+      return settingsView();
+    },
+    skills_provider_models: async ({ providerId }: { providerId: string }) => providerModels(providerId),
     skills_hub: async () => view(),
     skills_hub_detail: async ({ name }: { name: string }) => {
       const detail = await readHubSkill(root, name);

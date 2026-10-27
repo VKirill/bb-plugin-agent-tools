@@ -152,7 +152,7 @@ function CategoryPicker({
   );
 }
 
-export function SkillsPage({ onAttention }: { onAttention?: (count: number) => void }) {
+export function SkillsPage({ onAttention, onOpenSettings }: { onAttention?: (count: number) => void; onOpenSettings?: () => void }) {
   const rpc = useRpc<typeof rpcContract>();
   const [hub, setHub] = useState<SkillsHub | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +237,11 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
   const reviewCount = skills.filter((skill) => skill.review !== null).length;
   const problemCount = skills.filter(blocking).length;
   const unplacedCount = skills.filter((skill) => skill.category === null && skill.review === null).length;
-  const leftovers = (hub?.machines ?? []).filter((machine) => machine.homes.length > 0 || machine.notOnHub.length > 0);
+  const offerCleanup = hub?.offerCleanup ?? false;
+  // Without cleanup the plugin leaves machine folders alone and only offers to copy what the hub lacks.
+  const leftovers = (hub?.machines ?? []).filter(
+    (machine) => machine.notOnHub.length > 0 || (offerCleanup && machine.homes.length > 0),
+  );
   const notOnHubTotal = leftovers.reduce((sum, machine) => sum + machine.notOnHub.length, 0);
 
   useEffect(() => {
@@ -346,6 +350,13 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
           </span>
           <span aria-hidden="true">·</span>
           <span className={hub.classifier.lastError !== null ? "at-text-danger" : undefined}>{classifierLine}</span>
+          <span aria-hidden="true">·</span>
+          <span>{tp("модель: {0}", hub.classifier.model)}</span>
+          {onOpenSettings ? (
+            <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={onOpenSettings}>
+              {t("изменить")}
+            </button>
+          ) : null}
         </div>
         <span className="flex-1" />
         <div className="relative w-full sm:w-64">
@@ -405,7 +416,9 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
             </span>
             <span className="text-xs text-muted-foreground">
               {notOnHubTotal > 0
-                ? t("Перенесите их на хаб — тогда BB отдаст их в каждую сессию на любой машине. Потом очистите копии, чтобы не было дублей.")
+                ? offerCleanup
+                  ? t("Перенесите их на хаб — тогда BB отдаст их в каждую сессию на любой машине. Потом очистите копии, чтобы не было дублей.")
+                  : t("Перенос копирует навык на хаб — тогда BB отдаст его в каждую сессию на любой машине. Оригинал на машине остаётся.")
                 : t("BB и так отдаёт навыки хаба в каждую сессию — копии на машинах дают дубли.")}
             </span>
           </div>
@@ -415,7 +428,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <span className="font-medium">{machine.hostName}</span>
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                    {machine.homes.map((home) => `${home.path} ${home.skills + home.links}`).join(" · ")}
+                    {offerCleanup ? machine.homes.map((home) => `${home.path} ${home.skills + home.links}`).join(" · ") : ""}
                   </span>
                   {machine.notOnHub.length > 0 ? (
                     <Button
@@ -442,7 +455,7 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
                       {tp("Перенести на хаб · {0}", machine.notOnHub.length)}
                     </Button>
                   ) : null}
-                  {machine.homes.length > 0 ? (
+                  {offerCleanup && machine.homes.length > 0 ? (
                     <Button
                       size="sm"
                       variant="outline"
