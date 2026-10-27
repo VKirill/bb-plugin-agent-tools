@@ -129,13 +129,29 @@ export type FoundSkill = { name: string; path: string; home: string; mtime: numb
  * their real folder, one entry per name: the newest copy wins. This is what a
  * machine would lose from BB sessions if it is not on the hub.
  */
+/** Real folders that belong to a CLI or to BB itself, never to the user. */
+const OWNED_ROOTS = [
+  ".codex/skills/.system",
+  ".claude/skills/synced",
+  ".claude/plugins",
+  ".codex/plugins",
+  ".bb-machines",
+  ".bb/plugins",
+];
+/** Skills BB writes on every machine by itself. */
+const BB_OWN_SKILLS = new Set(["bb-cli"]);
+
 export async function listMachineSkills(home = os.homedir()): Promise<FoundSkill[]> {
   const byName = new Map<string, FoundSkill>();
+  const owned = await Promise.all(
+    OWNED_ROOTS.map(async (rel) => (await realpath(path.join(home, rel)).catch(() => path.join(home, rel))) + path.sep),
+  );
   for (const location of MACHINE_SKILL_HOMES) {
     const dir = path.join(home, location.path);
     for (const name of await entriesOf(dir, location.keep)) {
+      if (BB_OWN_SKILLS.has(name)) continue;
       const real = await realpath(path.join(dir, name)).catch(() => null);
-      if (real === null) continue;
+      if (real === null || owned.some((root) => `${real}${path.sep}`.startsWith(root))) continue;
       const info = await stat(path.join(real, "SKILL.md")).catch(() => null);
       if (info === null || !info.isFile()) continue;
       const found = { name, path: real, home: `~/${location.path}`, mtime: Math.round(info.mtimeMs) };

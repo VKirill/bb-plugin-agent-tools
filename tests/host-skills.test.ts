@@ -65,6 +65,9 @@ test("pack a draft and unpack it into drafts, keeping the previous copy", async 
 test("machine skills: links resolve, newest copy wins, CLI-owned folders are skipped", async () => {
   const home = fakeHome();
   skill(path.join(home, ".qwen/skills"), "seo");
+  mkdirSync(path.join(home, ".gemini/config/skills"), { recursive: true });
+  symlinkSync(path.join(home, ".codex/skills/.system/imagegen"), path.join(home, ".gemini/config/skills/imagegen"));
+  skill(path.join(home, ".claude/skills"), "bb-cli");
   const old = new Date("2020-01-01");
   utimesSync(path.join(home, ".agents/skills/seo/SKILL.md"), old, old);
   const found = await listMachineSkills(home);
