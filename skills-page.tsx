@@ -498,8 +498,18 @@ export function SkillsPage({ onAttention }: { onAttention?: (count: number) => v
                         <button
                           type="button"
                           aria-current={sectionSelected ? "page" : undefined}
+                          aria-expanded={open}
                           onClick={() => {
                             setQuery("");
+                            // A second click on the open, selected section folds it.
+                            if (sectionSelected && open) {
+                              setExpanded((current) => {
+                                const next = new Set(current);
+                                next.delete(section.id);
+                                return next;
+                              });
+                              return;
+                            }
                             setNode({ kind: "section", id: section.id });
                             setExpanded((current) => new Set(current).add(section.id));
                           }}
