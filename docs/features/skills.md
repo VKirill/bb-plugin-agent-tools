@@ -2,8 +2,8 @@
 title: Agent skill canon and rollout
 type: component
 created: 2026-09-27
-updated: 2026-10-27
-status: active
+updated: 2026-10-28
+status: deprecated
 confidence: medium
 tags: [skills, canon, fanout]
 sources:
@@ -23,43 +23,44 @@ sources:
   - categories.ts
   - skills-page.tsx
   - skill-meta.ts
+  - host-skills.ts
 ---
 # Agent skill canon and rollout
-The plugin has a BB-server hub library used by sessions and a legacy per-machine canon scanner and fan-out (`hub-skills.ts:8-12`, `skills.ts:103-138`, `server.ts:1538-1569`). The hub library and category tree are managed from the Skills page and `bb tools` routes; see [Hub skills and categories](skills-hub.md) (`skills-page.tsx:140-199`, `skills-hub-service.ts:139-184`, `skills-hub-service.ts:732-742`).
+This page describes the deprecated per-machine canon scanner and fan-out retained for old RPC clients. Current skill management uses the BB server hub; machine skills are imported by copy, and cleanup is an explicit operation. The old machine-canon settings are no longer read: retained code fixes scheduled fan-out off, plugin-name inclusion on, and the Git remote empty (`server.ts:546-548`). See [Hub skills and categories](skills-hub.md) (`server.ts:2730-2739`, `skills-hub-service.ts:593-609`, `skills-hub-service.ts:728-735`).
 
-The legacy machine rollout compares skill folders on each machine against `~/.agents/skills`, then plans promotions, Git synchronization, CLI-home links or mirrors, and snapshots (`host.ts:374-435`, `server.ts:1538-1569`).
+The legacy machine rollout compares skill folders on each machine against `~/.agents/skills`, then plans promotions, Git synchronization, CLI-home links or mirrors, and snapshots (`host.ts:374-435`, `server.ts:1528-1559`).
 
 ## Purpose
 
-The hub-backed library stores skill files under the BB server data directory; the older machine scanner compares CLI homes with `~/.agents/skills` and plans explicit reconciliation actions (`hub-skills.ts:8-12`, `host.ts:374-435`, `skills.ts:138-190`). Details of hub publishing, category placement and restart recovery are in [Hub skills and categories](skills-hub.md).
+The active skills library stores skill files under the BB server data directory. The older machine scanner compares CLI homes with `~/.agents/skills`; its former CLI commands now return a migration message, while retained RPC handlers still expose the old operations (`hub-skills.ts:8-12`, `host.ts:374-435`, `server.ts:2730-2739`, `server.ts:2203-2219`). Hub publishing, category placement, machine import, cleanup settings and restart recovery are documented in [Hub skills and categories](skills-hub.md).
 
 ## Legacy machine canon and rollout
 
 ### How it works
 
 1. A machine host scans the canon and known homes, ignores hidden names, fingerprints skill folders, and also detects names already supplied by marketplace plugins (`host.ts:374-435`).
-2. The server stores the scan by host and derives out-of-canon rows and a cross-machine canon matrix (`server.ts:569-589`, `server.ts:834-900`).
+2. The server stores the scan by host and derives out-of-canon rows and a cross-machine canon matrix (`server.ts:613-623`, `server.ts:868-900`).
 3. `resolveRowAction` returns an automatic action when a state and location policy determine one; equal-date divergences and manual BB registry cases remain unresolved (`skills.ts:138-178`).
-4. An explicit adopt/link/take/delete/unlink action runs on the selected host; the host checks location policy, `SKILL.md`, existing canon content, and symlink conditions (`server.ts:2122-2129`, `host.ts:476-570`).
-5. Fan-out first promotes the unique newest candidate into the local canon, then syncs the configured Git remote, then computes and applies home operations (`skills.ts:302-365`, `server.ts:1311-1356`, `server.ts:1538-1556`).
-6. The same rollout includes a separate mirror plan for the BB server process's `experimental_dataDir/skills`; its rules and archive fallback are described under [BB server mirror planning](#bb-server-mirror-planning) (`server.ts:1361-1532`, `skills.ts:582-612`).
+4. An explicit adopt/link/take/delete/unlink action runs on the selected host; the host checks location policy, `SKILL.md`, existing canon content, and symlink conditions (`server.ts:2112-2119`, `host.ts:476-570`).
+5. Fan-out first promotes the unique newest candidate into the local canon, then syncs the configured Git remote, then computes and applies home operations (`skills.ts:302-365`, `server.ts:1301-1346`, `server.ts:1528-1546`).
+6. The same rollout includes a separate mirror plan for the BB server process's `experimental_dataDir/skills`; its rules and archive fallback are described under [BB server mirror planning](#bb-server-mirror-planning) (`server.ts:1351-1522`, `skills.ts:582-612`).
 7. `planFanOut` returns `link`, `mirror`, `pull`, `drop`, or `retire` operations plus next history state; the host executor snapshots replacements, copies without dependency/cache artifacts, and blocks operations that would lose files (`skills.ts:409-525`, `host.ts:890-975`, `skill-tree.ts:12-29`). Planned BB mirrors that exceed the 10 MiB byte limit are returned as failed operations (`skills.ts:145-162`, `host.ts:972-975`).
-8. The archive view lists backup metadata; restore snapshots the current canon version and copies the chosen snapshot into the canon (`host.ts:982-1061`, `server.ts:2173-2177`).
+8. The archive view lists backup metadata; restore snapshots the current canon version and copies the chosen snapshot into the canon (`host.ts:982-1061`, `server.ts:2163-2167`).
 
 ### Server initialization and settings
 
 1. The `plugin` entry reads `lang` from BB KV; a saved `ru` or `en` value is applied, while an absent or invalid value selects English (`server.ts:484-490`).
-2. It defines MetaMCP address/key/namespaces, scheduled skills fan-out, marketplace-name handling, and the canon Git remote. Defaults are empty URL/key, `secondary`, fan-out off, plugin names included, and no remote (`server.ts:487-529`).
+2. It defines MetaMCP, classifier provider/model/project, automatic classification, and cleanup-offer settings. Machine-canon schedule, marketplace-name, and Git-remote settings have been removed (`server.ts:492-542`).
 3. It creates the host RPC client and skills hub service, then defines KV readers for catalogue, ignored names, auto-sync and probes. Missing collections read as empty lists; missing `autoSync` reads as false (`server.ts:556-583`).
 
-The initial language KV read, settings definition, and host-client construction have no local catch branch (`server.ts:484-490`, `server.ts:492-565`).
+The initial language KV read, settings definition, and host-client construction have no local catch branch (`server.ts:484-490`, `server.ts:492-551`).
 
 ### Skill row classification
 
-`computeSkillRows` builds a row set from canon and scanned homes; it does not read the filesystem or write skill data (`skills.ts:226-288`).
+`computeSkillRows` builds a legacy row set from canon and scanned homes; it does not read the filesystem or write skill data (`skills.ts:226-288`). The current import path instead calls `listMachineSkills`, which resolves links, excludes owned roots and BB's own `bb-cli` skill, requires a file named `SKILL.md`, and retains the newest copy per name (`host-skills.ts:132-163`).
 
 1. It indexes only canon entries with `SKILL.md`, retaining their hashes, mtimes and symlink targets. It also normalizes the canon path and finds the scanned BB home (`skills.ts:230-246`).
-2. It skips the canon location and homes not present in the scan, then classifies every entry by symlink/directory kind, home policy, target path, `SKILL.md` presence, and canon hash (`skills.ts:247-276`).
+2. It skips the canon location and locations marked absent by the scan, then classifies each remaining entry by symlink/directory kind, home policy, target path, `SKILL.md` presence, and canon hash (`skills.ts:247-276`).
 3. Entries selected for display become rows containing name, home id, state, hash, local mtime and canon mtime; rows sort by name then home id (`skills.ts:277-288`).
 
 | Entry condition | Row outcome |
@@ -76,7 +77,7 @@ The initial language KV read, settings definition, and host-client construction 
 | Input case | Row outcome |
 |---|---|
 | Canon entry lacks `SKILL.md` | It is excluded from the canon lookup, so no row can match it by canonical hash (`skills.ts:235-240`). |
-| Home absent or it is the canon itself | Entries are not visited (`skills.ts:247-249`). |
+| Canon location | Skipped explicitly. A location with `exists: false` is skipped before its entries are visited (`skills.ts:247-250`). |
 | Symlink in `drop` policy | `stray-link`; symlink to canon | `linked`; symlink into BB home | `bb-registry` (`skills.ts:252-258`). |
 | External symlink without canon entry | `only-here` when `SKILL.md` exists; otherwise excluded (`skills.ts:259-262`). |
 | External symlink matching canon hash | Excluded; differing hash | `linked-external` (`skills.ts:263-267`). |
@@ -125,18 +126,18 @@ The planner does not write files; oversized BB copies are returned in `blocked`.
 
 `planServerBbMirror` plans only additions or replacements under the BB server process's `dataDir/skills`; it does not handle pulls or retirements (`skills.ts:575-612`). It ignores plugin-provided names when those names are passed in, canon symlinks, and destination symlinks. For regular canon folders, it blocks copies above 10 MiB, plans missing copies, plans a mirror when canon is at least as new, and plans a cleanup mirror when hashes match but the destination contains junk (`skills.ts:582-609`). The routine checks byte size only: although scans carry `bbFiles`, its callers pass `bytes` to `bbTreeProblem` without a file count (`contract.ts:99-105`, `skills.ts:151-162`, `skills.ts:582-595`).
 
-`runServerBbSkills` uses the local canon and fills missing names from the most populated connected host canon. It runs Git sync first when a remote is configured and this is not a dry run, then scans canon and server destination and calls `planServerBbMirror` (`server.ts:1361-1453`). Local entries are copied directly; a host-only entry is packed with `skills_archive`, then extracted into `dataDir/skills`. A blocked plan or failed archive, extraction, or copy is returned in the rollout's per-operation failures (`server.ts:1455-1532`, `contract.ts:440-447`, `host.ts:1086-1115`, `skills-server.ts:130-146`).
+`runServerBbSkills` uses the local canon and fills missing names from the most populated connected host canon. It runs Git sync first when a remote is configured and this is not a dry run, then scans canon and server destination and calls `planServerBbMirror` (`server.ts:1351-1443`). Local entries are copied directly; a host-only entry is packed with `skills_archive`, then extracted into `dataDir/skills`. A blocked plan or failed archive, extraction, or copy is returned in the rollout's per-operation failures (`server.ts:1445-1522`, `contract.ts:440-447`, `host.ts:1086-1115`, `skills-server.ts:130-146`).
 
-Archive extraction modes and failure behavior are detailed in [BB server skill mirror archive](skills-server-mirror.md) (`skills-server.ts:130-146`, `server.ts:1488-1503`).
+Archive extraction modes and failure behavior are detailed in [BB server skill mirror archive](skills-server-mirror.md) (`skills-server.ts:130-146`, `server.ts:1478-1493`).
 
 ### Canon screen
 
-`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:589-624`). Skill state labels, hints, legend entries, and out-of-canon filters call `t()` during render, after BB’s document locale sets the selected language (`app.tsx:113-118`, `app.tsx:430-450`, `app.tsx:462-489`, `app.tsx:496-506`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
+`SkillCanon` renders a view of `data.skillCanon`; it does not call RPC methods or own scan errors (`app.tsx:590-625`). Skill state labels, hints, legend entries, and out-of-canon filters call `t()` during render, after BB’s document locale sets the selected language (`app.tsx:114-119`, `app.tsx:431-451`, `app.tsx:463-490`, `app.tsx:497-507`, `i18n.ts:31-39`, `i18n.en.ts:4-63`).
 
-1. It derives counts for all rows, gaps, divergent states, plugin-provided entries and oversized rows (`app.tsx:590-602`).
-2. It filters by the selected category and trimmed, case-insensitive skill-name query (`app.tsx:604-614`).
-3. With zero total rows it shows that the canon is empty or machines have not been scanned. With rows but no visible matches it chooses an empty message by filter (`app.tsx:616-624`, `app.tsx:653-662`).
-4. Otherwise it renders one host-state cell per row, plugin/size badges where relevant, and a homes cell. That cell shows the selected machine's homes or the intersection across all machines; an empty home intersection displays the localized “canon only” label, and non-empty home IDs are sorted and converted to paths (`app.tsx:664-723`).
+1. It derives counts for all rows, gaps, divergent states, plugin-provided entries and oversized rows (`app.tsx:591-603`).
+2. It filters by the selected category and trimmed, case-insensitive skill-name query (`app.tsx:605-615`).
+3. With zero total rows it shows that the canon is empty or machines have not been scanned. With rows but no visible matches it chooses an empty message by filter (`app.tsx:617-625`, `app.tsx:654-663`).
+4. Otherwise it renders one host-state cell per row, plugin/size badges where relevant, and a homes cell. That cell shows the selected machine's homes or the intersection across all machines; an empty home intersection displays the localized “canon only” label, and non-empty home IDs are sorted and converted to paths (`app.tsx:665-724`).
 
 | Filter | Includes rows when |
 |---|---|
@@ -144,13 +145,13 @@ Archive extraction modes and failure behavior are detailed in [BB server skill m
 | `gaps` | At least one host reports `missing`. |
 | `differs` | At least one host is `differs`, `newer`, or `stale`. |
 | `plugin` | `fromPlugin` is true. |
-| `heavy` | `tooHeavy` is true (`app.tsx:589-614`). |
+| `heavy` | `tooHeavy` is true (`app.tsx:590-615`). |
 
-This component has no local error branch: it renders the supplied overview and empty-state messages; request errors belong to its parent (`app.tsx:589-624`).
+This component has no local error branch: it renders the supplied overview and empty-state messages; request errors belong to its parent (`app.tsx:590-625`).
 
-For each displayed row, the homes cell filters `row.hosts` to all entries when no host is selected or to entries whose `hostId` matches the selection. It maps those entries to home-id lists and intersects them; no selected-host rows produce an empty list. An empty home list displays the localized “canon only” label; otherwise sorted IDs are rendered as paths (`app.tsx:714-722`).
+For each displayed row, the homes cell filters `row.hosts` to all entries when no host is selected or to entries whose `hostId` matches the selection. It maps those entries to home-id lists and intersects them; no selected-host rows produce an empty list. An empty home list displays the localized “canon only” label; otherwise sorted IDs are rendered as paths (`app.tsx:715-723`).
 
-The matrix renders each host state as present/same, newer, stale, differs, or missing, and marks plugin-provided canon names with a badge (`app.tsx:670-693`). Archive dates use the selected language's `en-GB` or `ru-RU` locale, and known Russian snapshot reasons pass through `t()` before display (`app.tsx:736-740`, `app.tsx:821-825`, `i18n.en.ts:4-63`).
+The matrix renders each host state as present/same, newer, stale, differs, or missing, and marks plugin-provided canon names with a badge (`app.tsx:671-694`). Archive dates use the selected language's `en-GB` or `ru-RU` locale, and known Russian snapshot reasons pass through `t()` before display (`app.tsx:737-741`, `app.tsx:822-826`, `i18n.en.ts:4-63`).
 
 ### Host adoption and replacement
 
@@ -164,29 +165,13 @@ The host returns `{ ok: false, error }` for validation failures. Filesystem erro
 
 ### Canon Git synchronization
 
-`syncSkillsCanon` uses an injected Git runner and optional path, timestamp, host-name, and fingerprint functions; otherwise it uses the host Git runner and local defaults (`skills-sync.ts:21-49`, `skills-sync.ts:87-98`).
-
-1. Without `.git` in the canon, it creates a timestamped snapshot, clones the remote to a temporary path, adds only top-level entries absent locally, and moves clone metadata into canon. When `fingerprintDir` is supplied, it records same-name hash divergences while retaining local folders; then it removes the temporary clone (`skills-sync.ts:127-158`).
-2. With `.git`, it reads `origin`; when its URL differs from the requested remote, it adds or changes `origin`, then runs `pull --rebase --autostash` (`skills-sync.ts:159-176`).
-3. If pull fails, it aborts the rebase. A failure other than untracked-file overwrite returns an error. For that overwrite case it fetches `origin`, reads top-level non-hidden names from the fetched tree, checks out only names absent locally, and records local name collisions without replacing them (`skills-sync.ts:177-212`).
-4. It adds root-level symlink names and dependency/cache directories to `.gitignore`, stages all changes, commits only when the worktree is dirty, and verifies the fetched ref is an ancestor of local HEAD. If needed, it records the remote ref with an `ours` merge commit (`skills-sync.ts:214-256`).
-5. It pushes and returns `ok: true` with a message indicating whether it committed and pushed. A push failure returns `ok: false` and a clipped error; other Git failures abort an in-progress rebase where possible and return `ok: false` (`skills-sync.ts:257-271`).
-
-Clone, pull, fetch, checkout, commit, merge, or ref failures reach the catch path, which aborts a rebase where possible and returns `ok: false`, an error, and no success message (`skills-sync.ts:233-236`).
-
-| Branch | Condition and work | Result or failure |
-|---|---|---|
-| First Git sync | Canon lacks `.git`; snapshot local tree, clone remote, add only absent top-level items, preserve same-name local content and install clone metadata (`skills-sync.ts:127-158`). | Continues into ignore/stage/commit/ref-check/push. Clone or migration errors are caught and returned as `ok:false` (`skills-sync.ts:233-236`). |
-| Existing repository | Read `origin`, add or replace its URL when needed, then `pull --rebase --autostash` (`skills-sync.ts:159-176`). | A successful pull sets the remote ref used by the later ancestry check (`skills-sync.ts:139-142`). |
-| Pull blocked by untracked overwrite | Abort rebase; only this parsed failure with named paths enters recovery. Fetch remote tree and check out names absent locally; existing local names are kept (`skills-sync.ts:177-212`). | Fetch/checkout failure returns `ok:false`; other pull errors return `ok:false` without recovery (`skills-sync.ts:177-183`). |
-| Local commit/reconcile | Add root symlink and junk-directory ignores, stage the canon, commit only if dirty, and verify remote ref is an ancestor; if not, record it with an `ours` merge (`skills-sync.ts:214-256`). | Missing remote ref or failed merge/recheck returns `ok:false` via the outer catch (`skills-sync.ts:245-256`, `skills-sync.ts:268-271`). |
-| Push | Push after local reconciliation (`skills-sync.ts:257-258`). | Push failure returns `ok:false` with clipped first-line error; success returns `ok:true` and a message. A clean tree still pushes but does not create a commit (`skills-sync.ts:257-271`). |
+The retained `syncSkillsCanon` routine has first-sync and existing-repository paths, collision recovery, local commit/reconciliation, and push outcomes. Its current legacy caller has an empty configured remote, so it returns before invoking Git; the full function flow and failure cases are documented in [Machine canon Git synchronization](skills-sync.md) (`server.ts:548`, `server.ts:1278-1293`, `skills-sync.ts:115-271`).
 
 ## Modes, policies, and states
 
 | Home policy | Location | Behavior |
 |---|---|---|
-| Canon | `~/.agents/skills` | Source of truth, and the directory synchronized with Git (`host.ts:376-378`, `skills-sync.ts:87-98`). |
+| Legacy canon | `~/.agents/skills` | Source used by retained machine-canon scan and RPC code; the current hub feature does not use it as its source of truth (`host.ts:376-378`, `skills-hub-service.ts:593-609`). |
 | Link | `~/.claude/skills`, `~/.qwen/skills` | Missing entries are symlinked to canon; real copies can be replaced with links (`skills.ts:103-117`, `skills.ts:123-133`, `skills.ts:455-473`). |
 | Native | `~/.codex/skills`, `~/.cursor/skills`, `~/.config/opencode/skills` | Their homes are not rewritten during fan-out (`skills.ts:103-117`, `skills.ts:123-133`, `skills.ts:455-473`). |
 | Own | `~/.bb/skills` | Plugin does not rewrite BB's skill registry; fan-out mirrors real directories beside it (`skills.ts:103-117`, `skills.ts:123-133`, `skills.ts:418-451`). |
@@ -200,27 +185,27 @@ Clone, pull, fetch, checkout, commit, merge, or ref failures reach the catch pat
 - Unknown folders, missing skills, missing `SKILL.md`, attempts to manipulate the canon directly, or disallowed home policies return `ok: false` (`host.ts:476-570`).
 - A replacement is blocked if the losing tree contains files absent from the winning tree (`host.ts:440-466`, `host.ts:929-945`).
 - Fan-out errors are reported per operation; an absent home path fails only when the planned operation cannot find the corresponding scanned location (`host.ts:908-975`).
-- Git sync reports missing Git, remote, or merge/push failures with `ok: false`; the orchestration excludes hosts whose sync failed from later fan-out (`skills-sync.ts:87-236`, `server.ts:1248-1305`, `server.ts:1538-1569`).
-- A remote is required for `skills-sync`; without one, the server returns an error before starting sync (`server.ts:2179-2185`).
+- Git sync reports missing Git, remote, or merge/push failures with `ok: false`; the orchestration excludes hosts whose sync failed from later fan-out (`skills-sync.ts:87-236`, `server.ts:1238-1295`, `server.ts:1528-1559`).
+- A remote is required for `skills-sync`; without one, the server returns an error before starting sync (`server.ts:2169-2175`).
 
 ## Business rules
 
 - Folder policy is centralized in `LOCATION_POLICY`; unknown locations default to `link` (`skills.ts:103-122`).
 - A unique most-recent version can be promoted; if the top timestamp is shared by different hashes, no automatic promotion is planned (`skills.ts:267-330`).
 - The fan-out planner does not retire a skill missing from BB unless prior state records that the plugin mirrored it (`skills.ts:418-451`, `skills.ts:507-524`).
-- CLI homes skip marketplace-provided skill names when `skillsFanOutPluginNames` is off; the default is on, and `bb tools skills-fanout --all` also explicitly includes those names. BB server mirroring follows the same setting (`server.ts:515-520`, `server.ts:1197-1207`, `server.ts:1383-1388`, `server.ts:2768-2770`).
+- The retained `skills_fanout` RPC hard-codes plugin-name inclusion on, so its rollout passes `*` and does not skip marketplace-provided names. The former CLI workflow now returns a migration message, so its old `--all` option is not an available command (`server.ts:548`, `server.ts:1195-1204`, `server.ts:1233-1240`, `server.ts:2730-2739`).
 - Skill copies and archives omit `node_modules`, `.git`, Python caches and virtual environments, JS build caches, `.DS_Store`, `.backup.json`, and `.pyc`, `.bak`, or `.tmp` files (`skill-tree.ts:12-29`, `host.ts:1096-1108`, `skills-server.ts:130-145`).
-- The scan records BB-counted bytes, file count, and whether recognized junk is present. Current fan-out guards use the byte value; they do not pass the file count to `bbTreeProblem` (`contract.ts:99-105`, `skills.ts:151-162`, `skills.ts:475-477`, `skills.ts:594-597`).
-- The hourly schedule runs skills fan-out when enabled; if fan-out is disabled but a Git remote is configured, it still synchronizes the canon with Git (`server.ts:507-514`, `server.ts:2267-2287`). The setting default is documented in [deployment](../deployment.md).
+- The scan records BB-counted bytes, file count, and whether recognized junk is present. Legacy fan-out guards use the byte value; they do not pass the file count to `bbTreeProblem` (`contract.ts:99-105`, `skills.ts:151-162`, `skills.ts:475-477`, `skills.ts:594-597`).
+- The current hourly schedule refreshes machine skill counts and starts the hub classifier when `skillsClassifierAuto` is enabled; it does not run machine fan-out (`server.ts:2302-2312`).
 - Replaced/deleted trees are archived before removal; link-to-canon trees are not copied into backup (`host.ts:299-315`, `host.ts:935-957`).
 
 ## Public API or commands
 
-See [API and commands](../api.md). The main calls are `skill_adopt`, `skill_adopt_bulk`, `skills_fanout`, `skills_backups`, `skills_backup_restore`, and `skills_sync` (`server.ts:289-380`).
+The former machine-canon CLI commands return a migration message. The legacy `skills_fanout` RPC remains registered for older callers; the old skills schedule setter is a no-op. Current hub API and commands are listed in [Hub skills and categories](skills-hub.md) and [API and commands](../api.md) (`server.ts:2296-2299`, `server.ts:2730-2739`, `server.ts:2203-2219`).
 
 ## Gotchas
 
-- Git sync requires a configured remote; fan-out without a remote still lays out eligible homes, but does not synchronize canon with Git (`server.ts:2179-2185`, `i18n.ts:231-260`).
+- The server's retained legacy `skills_sync` RPC cannot synchronize because its legacy remote is an empty constant (`server.ts:546-548`, `server.ts:2214-2219`).
 - A project skill symlink is not replaced as part of promotion; its target contents may be copied to canon while the live link remains in place (`skills.ts:302-365`).
 - The fan-out history file tracks whether a BB mirror was created; losing that record changes how later missing skills are interpreted (`host.ts:275-293`, `host.ts:966-975`, `skills.ts:458-487`, `skills.ts:524-530`).
 
@@ -233,6 +218,6 @@ See [decisions](../decisions.md), [data model](../data-model.md), and [gotchas](
 - [Agent Tools data model](../data-model.md)
 - [Agent Tools decisions](../decisions.md)
 - [Hub skills and categories](skills-hub.md)
-- [BB server skill mirror archive](skills-server-mirror.md)
+- [Machine canon Git synchronization](skills-sync.md)
 - [Agent Tools gotchas](../gotchas.md)
 - [Agent Tools overview](../overview.md)

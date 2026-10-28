@@ -2,7 +2,7 @@
 title: Agent Tools decisions
 type: decisions
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-28
 status: active
 confidence: medium
 tags: [decisions, adr]
@@ -10,48 +10,63 @@ sources:
   - server.ts
   - skills.ts
   - host.ts
+  - skills-hub-service.ts
+  - settings-page.tsx
+  - host-skills.ts
   - AGENTS.md
 ---
 # Agent Tools decisions
-The code and commit history establish opt-in scheduled skill rollout and ordered promotion, Git synchronization, host fan-out, then mirroring into the BB server process data directory (`server.ts:2267-2287`, `server.ts:1538-1569`, `skills.ts:267-330`, `skills.ts:582-612`).
+The active skills flow uses the BB server hub; machine skills are copied into it on import, while cleanup is a separate offered action (`skills-hub-service.ts:593-609`, `skills-hub-service.ts:728-735`). Earlier per-machine fan-out decisions below are superseded.
 
-## 001. Scheduled skills rollout is opt-in (active)
+## 004. The hub owns current skill management (active)
 
-**Context:** Automatic placement of skills changes canon and CLI homes across connected hosts. The commit introducing the setting states that a fresh install moves nothing on its own (`218cd71`).
+**Context:** Machine skill folders duplicated skills already supplied by BB sessions, while deleting or replacing those folders without an explicit choice could remove user data (`server.ts:530-540`, `host-skills.ts:167-223`).
 
-**Decision:** Keep `skillsFanOutAuto` disabled by default; the scheduled sweep only runs the full skills rollout when enabled (`server.ts:507-514`, `server.ts:2267-2287`).
-
-**Status:** active
-
-**Consequences:** A fresh configuration does not promote, sync, or fan out skills on the schedule. An operator can still run the manual `skills-fanout` command (`server.ts:2267-2287`, `server.ts:2421-2424`).
-
-**Sources:** `server.ts:507-514`, `server.ts:2267-2287`, commit `218cd71`.
-
-## 002. Promote skills before Git synchronization and host fan-out (active)
-
-**Context:** A skills rollout has to combine local candidates, the shared Git canon, and derived host homes. The commit history records that the latest skill is promoted to canon before Git sync and fan-out (`2170e0d`, `ff8a03d`).
-
-**Decision:** `runSkillsRollout` scans and promotes candidates first, synchronizes connected-host canons when a remote is configured, fans out to eligible host homes, then mirrors into the BB server process's `experimental_dataDir/skills` (`server.ts:1538-1569`, `server.ts:1248-1305`, `server.ts:1361-1532`).
+**Decision:** Use the BB server's skill directory as the active library. Import copies only machine skills the hub lacks; machine cleanup is a separate action exposed when `skillsOfferCleanup` is enabled (`skills-hub-service.ts:593-609`, `skills-hub-service.ts:724-735`, `settings-page.tsx:180-199`).
 
 **Status:** active
 
-**Consequences:** The final home layout follows the post-promotion, post-sync canon; failed host syncs are excluded from later fan-out and returned in the result. The server-process mirror is a separate plan that can use a filtered host archive when no local canon copy exists (`server.ts:1538-1569`, `server.ts:1494-1502`, `skills.ts:582-612`).
+**Consequences:** Import leaves source folders in place. The hourly sweep refreshes machine summaries and optionally classifies hub skills without running machine fan-out. The retained `skills_fanout` RPC still reaches the legacy rollout path for callers that invoke it directly (`host-skills.ts:167-223`, `server.ts:2203-2206`, `server.ts:2302-2312`).
 
-**Sources:** `server.ts:1248-1305`, `server.ts:1361-1569`, `skills.ts:267-330`, `skills.ts:582-612`, commits `2170e0d`, `ff8a03d`.
+**Sources:** `server.ts:530-540`, `server.ts:2203-2206`, `server.ts:2302-2312`, `skills-hub-service.ts:593-609`, `skills-hub-service.ts:724-735`, `host-skills.ts:167-223`, `settings-page.tsx:180-199`.
+
+## 001. Scheduled skills rollout is opt-in (superseded)
+
+**Context:** The legacy machine-canon path is retained for older callers, but initialization hard-codes scheduled rollout off and the CLI entry returns a migration message (`server.ts:546-548`, `server.ts:2730-2739`).
+
+**Decision:** Keep machine-canon rollout inactive. The retained schedule setter ignores its input, and the current hourly sweep refreshes hub machine summaries and optionally classifies hub skills (`server.ts:2296-2299`, `server.ts:2302-2312`).
+
+**Status:** superseded by #004
+
+**Consequences:** This schedule no longer controls the active hub skill flow. The CLI returns a migration message, while the retained `skills_fanout` RPC still invokes the legacy rollout path; the current sweep refreshes machine counts and optionally starts classification (`server.ts:2203-2206`, `server.ts:2730-2739`, `server.ts:2302-2312`).
+
+**Sources:** `server.ts:546-548`, `server.ts:2296-2312`, `server.ts:2730-2739`.
+
+## 002. Promote skills before Git synchronization and host fan-out (superseded)
+
+**Context:** The retained machine-canon implementation combines local candidates, Git synchronization and derived host homes (`server.ts:1314-1353`, `server.ts:1395-1522`).
+
+**Decision:** The retained `skills_fanout` RPC calls `runSkillsRollout`, which promotes candidates first, synchronizes host canons only when a remote is configured, fans out, then mirrors into the BB server process's `experimental_dataDir/skills` (`server.ts:2203-2206`, `server.ts:1572-1590`).
+
+**Status:** superseded by #004
+
+**Consequences:** Direct legacy RPC invocation can still alter machine homes; a blank configured remote skips Git synchronization. The server-process mirror is a separate plan that can use a filtered host archive when no local canon copy exists (`server.ts:1278-1293`, `server.ts:1395-1469`, `server.ts:1522-1590`, `skills.ts:582-612`).
+
+**Sources:** `server.ts:1195-1269`, `server.ts:1278-1293`, `server.ts:1341-1390`, `server.ts:1395-1590`, `server.ts:2203-2206`, `skills.ts:267-330`, `skills.ts:582-612`.
 
 ## 003. MCP removal is a separate explicit operation (active)
 
-**Context:** Catalogue state and host configuration have different effects: dropping a desired-state row must not silently rewrite user-owned CLI files. `forget` is implemented separately from host-side purge (`server.ts:2565-2597`).
+**Context:** Catalogue state and host configuration have different effects: dropping a desired-state row must not silently rewrite user-owned CLI files. The CLI's `forget` handler only changes catalogue storage, while `remove` invokes `runPurge` (`server.ts:2613-2627`, `server.ts:1688-1729`).
 
-**Decision:** Catalogue removal (`forget`) leaves machines untouched; `remove`/`purge` is the explicit host-config removal path with a dry-run option (`server.ts:223-237`, `server.ts:2565-2597`).
+**Decision:** Catalogue removal (`forget`) leaves machines untouched; `remove` is the explicit host-config removal path with a dry-run option (`server.ts:241-255`, `server.ts:2613-2645`, `server.ts:1688-1729`).
 
 **Status:** active
 
-**Consequences:** A forgotten server can remain present and become a pending item after a later scan; actual removal requires the separate operation (`server.ts:692-735`, `server.ts:2565-2597`).
+**Consequences:** A forgotten server can remain present and become a pending item after a later scan; actual removal requires the separate operation (`server.ts:740-779`, `server.ts:2613-2645`).
 
-**Sources:** `server.ts:223-237`, `server.ts:2565-2597`.
+**Sources:** `server.ts:1688-1729`, `server.ts:241-255`, `server.ts:2613-2645`.
 
-See [MCP catalogue](features/mcp-catalog.md), [skills](features/skills.md), and [gotchas](gotchas.md).
+See [MCP catalogue](features/mcp-catalog.md), [hub skills](features/skills-hub.md), [legacy machine skills](features/skills.md), and [gotchas](gotchas.md).
 
 <!-- lane-pilot:backlinks -->
 ## Referenced by
