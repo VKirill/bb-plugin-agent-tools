@@ -2,7 +2,7 @@
 title: Agent Tools overview
 type: overview
 created: 2026-09-27
-updated: 2026-10-27
+updated: 2026-10-28
 status: active
 confidence: medium
 tags: [bb-plugin, mcp, agent-skills]
@@ -18,15 +18,16 @@ sources:
   - i18n.en.ts
   - tsconfig.json
   - AGENTS.md
+  - settings-page.tsx
 ---
 # Agent Tools overview
 Agent Tools is a BB plugin that inventories MCP servers, CLI plugins, and agent skills on enrolled BB machines, then provides explicit operations to reconcile those resources (`server.ts:479-525`, `host.ts:783-785`).
 
 ## What it is
 
-The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:479-525`, `server.ts:2054-2265`, `server.ts:2353-2356`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:783-785`, `host.ts:785-817`).
+The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:479-525`, `server.ts:2044-2255`, `server.ts:2343-2346`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:783-785`, `host.ts:785-817`).
 
-The main areas are the MCP catalogue and sync, skill canon and fan-out, OpenCode configuration comparison, and CLI plugin inventory (`app.tsx:3275-3353`). The plugin supports Russian and English UI and CLI text. UI labels are translated during render using BB’s document locale (`ru*` → Russian, otherwise English); CLI language remains a saved choice (`app.tsx:113-118`, `app.tsx:324-331`, `app.tsx:430-450`, `i18n.ts:8-69`, `i18n.en.ts:4-63`).
+The main areas are the MCP catalogue and sync, BB hub skill management, OpenCode configuration comparison, CLI plugin inventory, and skill classifier settings (`app.tsx:919-941`, `app.tsx:3551-3558`, `settings-page.tsx:100-199`). The plugin supports Russian and English UI and CLI text. UI labels are translated during render using BB’s document locale (`ru*` → Russian, otherwise English); CLI language remains a saved choice (`app.tsx:114-119`, `app.tsx:325-332`, `app.tsx:431-451`, `i18n.ts:8-69`, `i18n.en.ts:4-63`).
 
 ## Stack
 
@@ -37,7 +38,7 @@ The main areas are the MCP catalogue and sync, skill canon and fan-out, OpenCode
 
 ## Quick start
 
-The build and verification scripts are defined in `package.json:74-78`; installation uses the path-plugin command in `AGENTS.md:10`.
+The build, type-check, and test scripts are defined in `package.json:74-78`; the manifest declares the server, host, app, and bundled skill entry points (`package.json:25-37`).
 
 ```sh
 npm ci
@@ -51,8 +52,9 @@ bb plugin install .
 
 - [Architecture](architecture.md) — runtime parts and call paths.
 - [MCP catalogue](features/mcp-catalog.md) — inventory, drift, adoption, sync, removal, probes, and MetaMCP.
-- [Skills](features/skills.md) — canon, per-home policy, snapshots, Git sync, and fan-out.
-- [Hub skills and categories](features/skills-hub.md) — session-wide skill library, category placement, publish and restart recovery.
+- [Hub skills](features/skills-hub.md) — hub library, category placement, machine import and optional cleanup.
+- [Legacy machine skills](features/skills.md) — retained scanner and deprecated fan-out RPC behavior.
+
 - [OpenCode](features/opencode.md) — provider and model drift and updates.
 - [CLI plugins](features/cli-plugins.md) — inventory of installed CLI plugins.
 - [API and commands](api.md) — all BB RPC methods and `bb tools` commands.
