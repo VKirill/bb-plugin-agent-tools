@@ -511,8 +511,15 @@ export function createSkillsHubService(
     return (await bb.storage.kv.get<SuggestLogEntry[]>(KV.suggestLog)) ?? [];
   }
 
-  async function pushLog(entry: SuggestLogEntry): Promise<void> {
-    await bb.storage.kv.set(KV.suggestLog, appendLog(await readSuggestLog(), entry));
+  // One read-modify-write at a time: dispatch hints log in the background and
+  // several can land together.
+  let logLock: Promise<unknown> = Promise.resolve();
+  function pushLog(entry: SuggestLogEntry): Promise<void> {
+    const next = logLock.then(async () => {
+      await bb.storage.kv.set(KV.suggestLog, appendLog(await readSuggestLog(), entry));
+    });
+    logLock = next.catch(() => undefined);
+    return next;
   }
 
   const hinted = new ThreadSkillMemory();
@@ -544,7 +551,7 @@ export function createSkillsHubService(
       alreadySuggested: suggested,
     });
     if (args.threadId !== null && result.skill !== null) hinted.record(args.threadId, result.skill, Date.now());
-    await pushLog({
+    const logged = pushLog({
       at: Date.now(),
       threadId: args.threadId,
       message: args.message.slice(0, 200),
@@ -557,6 +564,9 @@ export function createSkillsHubService(
       ms: result.ms,
       mode: args.mode,
     });
+    // A queued turn must not wait for the log write.
+    if (args.mode === "dispatch") logged.catch((cause: unknown) => bb.log.warn(`skill suggest log: ${String(cause)}`));
+    else await logged;
     return { result, skillRead: config.skillsSuggestTools === true };
   }
 

@@ -116,15 +116,21 @@ export class SkillDispatchInjector {
     const text = visibleText(row.content);
     if (text === "") return;
     this.inflight.add(row.id);
+    const started = deps.now();
     try {
       if (!this.visibleThreads.has(row.threadId) && (await deps.isHidden(row.threadId))) {
         this.hiddenThreads.add(row.threadId);
         return;
       }
       const block = await deps.suggest(row.threadId, text);
+      const suggested = deps.now();
       if (block !== null && block !== "") {
         await deps.updateRow(row, [...row.content, agentOnlyBlock(block)]);
-        deps.log(`skill hint added to ${row.threadId} ${deps.now() - row.createdAt} ms after queueing`);
+        const done = deps.now();
+        deps.log(
+          `skill hint added to ${row.threadId} ${done - row.createdAt} ms after queueing ` +
+            `(event ${started - row.createdAt}, suggest ${suggested - started}, update ${done - suggested})`,
+        );
       }
     } catch (cause) {
       deps.log(`skill suggest on dispatch: ${cause instanceof Error ? cause.message : String(cause)}`);
