@@ -14,7 +14,8 @@ export type SuggestLogEntry = {
   mode: SuggestLogMode;
 };
 
-export const SUGGEST_LOG_MAX = 500;
+// 200 entries of ~500 bytes stay well under the 256 KB cap on one KV value.
+export const SUGGEST_LOG_MAX = 200;
 export const ALREADY_SUGGESTED_MS = 6 * 60 * 60 * 1000;
 
 export function appendLog(log: SuggestLogEntry[], entry: SuggestLogEntry): SuggestLogEntry[] {

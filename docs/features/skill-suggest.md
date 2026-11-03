@@ -80,7 +80,7 @@ sample; turns were not consecutive, so the per-thread repeat filter was not meas
 |---|---|
 | `bb tools skills-suggest --message <text> [--prev-user …] [--prev-assistant …] [--thread <id>] [--json]` | prints a `<skill_relevance>` block or nothing; the caller's thread id is used when `--thread` is absent |
 | `bb tools skills-cards [--refresh] [--wait] [--json]` | card counts; queues stale cards |
-| `bb tools skills-suggest-log [--limit N] [--json]` | last entries of the 500-entry log (KV `skillSuggestLog`) |
+| `bb tools skills-suggest-log [--limit N] [--json]` | last entries of the 200-entry log (KV `skillSuggestLog`) |
 | tools `skills_find`, `skill_read` | ranked search and SKILL.md / file reading for ordinary threads; setting `skillsSuggestTools`, off by default |
 
 Settings: `jevApiKey` (secret), `jevModel` (`jev-1.14.0`), `skillsSuggestGate`, `skillsSuggestFits`,

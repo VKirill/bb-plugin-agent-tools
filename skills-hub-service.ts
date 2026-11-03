@@ -450,15 +450,53 @@ export function createSkillsHubService(
     })
     .catch(() => undefined);
 
+  // One KV key per card: a KV value is capped at 256 KB, and all cards in one
+  // value hit that cap at ~235 skills. 0.2.18 kept them under KV.cards; that
+  // value is split into per-card keys on first read.
+  const CARD_PREFIX = "skillCard:";
+
+  async function migrateLegacyCards(): Promise<void> {
+    const legacy = await bb.storage.kv.get<Record<string, StoredCard>>(KV.cards);
+    if (legacy === undefined || legacy === null) return;
+    for (const [name, card] of Object.entries(legacy)) {
+      if ((await bb.storage.kv.get<StoredCard>(CARD_PREFIX + name)) === undefined) await bb.storage.kv.set(CARD_PREFIX + name, card);
+    }
+    await bb.storage.kv.delete(KV.cards);
+  }
+
+  let legacyMigrated: Promise<void> | null = null;
   async function readCards(): Promise<Record<string, StoredCard>> {
-    return (await bb.storage.kv.get<Record<string, StoredCard>>(KV.cards)) ?? {};
+    legacyMigrated ??= migrateLegacyCards().catch((cause: unknown) => {
+      legacyMigrated = null;
+      throw cause;
+    });
+    await legacyMigrated;
+    const keys = await bb.storage.kv.list(CARD_PREFIX);
+    const values = await Promise.all(keys.map((key) => bb.storage.kv.get<StoredCard>(key)));
+    const cards: Record<string, StoredCard> = {};
+    keys.forEach((key, index) => {
+      const value = values[index];
+      if (value !== undefined && value !== null) cards[key.slice(CARD_PREFIX.length)] = value;
+    });
+    return cards;
+  }
+
+  /** Writes only the cards that changed and removes the ones that disappeared. */
+  async function writeCardsDiff(before: Record<string, StoredCard>, after: Record<string, StoredCard>): Promise<void> {
+    for (const [name, card] of Object.entries(after)) {
+      if (JSON.stringify(before[name]) !== JSON.stringify(card)) await bb.storage.kv.set(CARD_PREFIX + name, card);
+    }
+    for (const name of Object.keys(before)) {
+      if (!(name in after)) await bb.storage.kv.delete(CARD_PREFIX + name);
+    }
   }
 
   let cardsLock: Promise<unknown> = Promise.resolve();
   function withCards<T>(fn: (cards: Record<string, StoredCard>) => Promise<{ cards: Record<string, StoredCard>; value: T }>): Promise<T> {
     const next = cardsLock.then(async () => {
-      const result = await fn(await readCards());
-      await bb.storage.kv.set(KV.cards, result.cards);
+      const before = await readCards();
+      const result = await fn({ ...before });
+      await writeCardsDiff(before, result.cards);
       rosterCache = null;
       return result.value;
     });
@@ -533,7 +571,8 @@ export function createSkillsHubService(
   const cardWriter = new SkillCardWriter({
     readJobs: loadJobs,
     readCards,
-    writeCards: (cards) => withCards(async () => ({ cards, value: undefined })),
+    // Merge, never replace: a snapshot taken before a concurrent save must not drop it.
+    writeCards: (cards) => withCards(async (current) => ({ cards: { ...current, ...cards }, value: undefined })),
     readState: readCardWriterState,
     writeState: (state) => bb.storage.kv.set(KV.cardWriter, state),
     spawnThread: (prompt) => spawnHidden("Agent Tools: skill cards", CARD_WRITER_ROLE, prompt),
