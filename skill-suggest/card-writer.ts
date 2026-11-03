@@ -204,13 +204,14 @@ export class SkillCardWriter {
     const stale = state.threadId === null || now - state.startedAt > THREAD_MAX_AGE_MS || state.count >= 60;
     const body = batch.map((job) => cardPrompt(job)).join("\n\n----\n\n");
     const message = `Write a card for each of these ${batch.length} skills.\n\n${body}`;
-    if (stale) {
+    // A kept thread can vanish under us (archived by hand, deleted): start a new one then.
+    const reused = !stale && (await deps.sendMessage(state.threadId as string, message).then(() => true, () => false));
+    if (reused) {
+      state = { ...state, count: state.count + batch.length };
+    } else {
       if (state.threadId !== null) await deps.archiveThread(state.threadId).catch(() => undefined);
       const threadId = await deps.spawnThread(`${cardWriterIntro()}\n\n${message}`);
       state = { ...state, threadId, startedAt: now, count: batch.length };
-    } else {
-      await deps.sendMessage(state.threadId as string, message);
-      state = { ...state, count: state.count + batch.length };
     }
     await deps.writeState(state);
     await deps.waitIdle(state.threadId as string, TURN_TIMEOUT_MS);
