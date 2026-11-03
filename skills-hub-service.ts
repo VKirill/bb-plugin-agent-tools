@@ -636,8 +636,10 @@ export function createSkillsHubService(
       } as unknown as Parameters<typeof bb.sdk.threads.queuedMessages.update>[0]);
     },
     isHidden: async (threadId) => {
-      const found = (await bb.sdk.threads.get({ threadId }).catch(() => null)) as { visibility?: string; thread?: { visibility?: string } } | null;
-      return (found?.thread?.visibility ?? found?.visibility) === "hidden";
+      type Found = { visibility?: string; parentThreadId?: string | null };
+      const found = (await bb.sdk.threads.get({ threadId }).catch(() => null)) as (Found & { thread?: Found }) | null;
+      const thread = found?.thread ?? found;
+      return thread?.visibility === "hidden" || (thread?.parentThreadId ?? null) !== null;
     },
     recheck: () => bb.experimental_hooks.recheck("message.dispatch"),
     waitReason: () => t("Agent Tools: подбираю навык"),

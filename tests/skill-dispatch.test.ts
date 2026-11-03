@@ -184,3 +184,8 @@ test("unknown switch after a reload holds the turn; off releases it without Jev"
   assert.equal(calls.recheck, 1);
   assert.equal(injector.decide(ctx({ queuedMessage: row() })).action, "proceed");
 });
+
+test("child threads started by an agent or plugin are not analyzed", () => {
+  const { injector } = setup();
+  assert.equal(injector.decide(ctx({ thread: { id: "thr_child", visibility: "visible", parentThreadId: "thr_parent" } })).action, "proceed");
+});

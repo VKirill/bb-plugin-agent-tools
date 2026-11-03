@@ -30,7 +30,7 @@ export type QueuedRow = {
 };
 
 export type DispatchContext = {
-  thread: { id: string; visibility?: string | null };
+  thread: { id: string; visibility?: string | null; parentThreadId?: string | null };
   input: { blocks: readonly DispatchBlock[]; text: string };
   attempt: "start-turn" | "join-turn";
   queuedMessage: QueuedRow | null;
@@ -48,7 +48,11 @@ export type InjectorDeps = {
   /** Visible text of the message plus the thread → the block to add, or null. */
   suggest(threadId: string, text: string): Promise<string | null>;
   updateRow(row: QueuedRow, content: DispatchBlock[]): Promise<void>;
-  /** True for hidden service threads (card writer, classifier, Tasks workers). */
+  /**
+   * True for threads the hint skips: hidden service threads (card writer,
+   * classifier, Tasks workers) and child threads an agent or plugin started
+   * (subagents, Devin, Lane Pilot tasks) — the owner talks in top-level threads.
+   */
   isHidden(threadId: string): Promise<boolean>;
   recheck(): Promise<void>;
   waitReason(): string;
@@ -94,7 +98,7 @@ export class SkillDispatchInjector {
     // setting and lets the row go at once when the hint is off.
     if (deps.enabled() === false) return proceed;
     if (ctx.attempt !== "start-turn") return proceed;
-    if (ctx.thread.visibility === "hidden") {
+    if (ctx.thread.visibility === "hidden" || (ctx.thread.parentThreadId ?? null) !== null) {
       this.hiddenThreads.add(ctx.thread.id);
       return proceed;
     }

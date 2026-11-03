@@ -90,7 +90,8 @@ and needs no provider hook and no patched BB core, only public Plugin SDK surfac
    the `<skill_relevance>` block; `bb.experimental_hooks.recheck("message.dispatch")` re-asks.
 4. The hook sees the row is decided (or carries the block) and answers `proceed`.
 
-Passed at once: steers into a running turn (`join-turn`), hidden threads, agent and system
+Passed at once: steers into a running turn (`join-turn`), hidden threads, child threads (any
+`parentThreadId`: subagents, Devin, Lane Pilot tasks — BB marks their first message as the user's), agent and system
 messages, retries, rows that already carry the block. Fail open: a Jev error or no skill leaves the
 row as is; if the plugin hangs, core re-attempts at `sendAt` and the hook lets a row older than 8 s
 go; a stopped plugin's waits are cleared by core. Cost: the turn starts about a second later and the
