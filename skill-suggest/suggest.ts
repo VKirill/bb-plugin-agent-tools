@@ -327,7 +327,7 @@ export function relevanceBlock(skill: string | null, opts: { skillRead?: boolean
   const how = opts.skillRead === false ? `Load the ${skill} skill (its SKILL.md) before acting.` : "Read its SKILL.md with skill_read before acting.";
   return [
     "<skill_relevance>",
-    `Relevant to the current request: ${skill}. ${how} Ignore this if it does not fit what the user actually asked for.`,
+    `Relevant to the current request: ${skill}. ${how} If it is already loaded in this conversation, use it as is and do not load it again. Ignore this if it does not fit what the user actually asked for.`,
     "</skill_relevance>",
   ].join("\n");
 }

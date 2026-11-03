@@ -154,3 +154,12 @@ test("a thread the hook saw as visible is not looked up on the queue", async () 
   assert.equal(calls.hiddenAsked, 0);
   assert.equal(calls.update.length, 1);
 });
+
+test("thread memory keeps hinted skills for six hours per thread", async () => {
+  const { ThreadSkillMemory, ALREADY_SUGGESTED_MS } = await import("../skill-suggest/log.ts");
+  const memory = new ThreadSkillMemory();
+  memory.record("thr_a", "kontur-elba", 0);
+  assert.deepEqual(memory.recent("thr_a", ALREADY_SUGGESTED_MS), ["kontur-elba"]);
+  assert.deepEqual(memory.recent("thr_a", ALREADY_SUGGESTED_MS + 1), []);
+  assert.deepEqual(memory.recent("thr_b", 0), []);
+});

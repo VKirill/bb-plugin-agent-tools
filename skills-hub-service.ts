@@ -51,7 +51,7 @@ import {
 import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
 import { createHttpJevClient } from "./skill-suggest/jev.ts";
 import { SkillDispatchInjector, type DispatchContext, type QueuedRow } from "./skill-suggest/dispatch.ts";
-import { alreadySuggested, appendLog, type SuggestLogEntry, type SuggestLogMode } from "./skill-suggest/log.ts";
+import { ThreadSkillMemory, alreadySuggested, appendLog, type SuggestLogEntry, type SuggestLogMode } from "./skill-suggest/log.ts";
 import {
   DEFAULT_EXCLUDE,
   DEFAULT_THRESHOLDS,
@@ -515,6 +515,8 @@ export function createSkillsHubService(
     await bb.storage.kv.set(KV.suggestLog, appendLog(await readSuggestLog(), entry));
   }
 
+  const hinted = new ThreadSkillMemory();
+
   /** One suggestion, logged. Null result means no Jev key. */
   async function runSuggest(args: {
     message: string;
@@ -527,7 +529,9 @@ export function createSkillsHubService(
     const key = config.jevApiKey.trim();
     if (key === "") return null;
     const log = await readSuggestLog();
-    const suggested = args.threadId === null ? [] : alreadySuggested(log, args.threadId, Date.now());
+    const now = Date.now();
+    const suggested =
+      args.threadId === null ? [] : [...new Set([...alreadySuggested(log, args.threadId, now), ...hinted.recent(args.threadId, now)])];
     const result = await suggest(createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" }), await loadRoster(), {
       message: args.message,
       context: { prevUser: args.prevUser || undefined, prevAssistant: args.prevAssistant || undefined },
@@ -539,6 +543,7 @@ export function createSkillsHubService(
       exclude: parseExclude(config.skillsSuggestExclude || DEFAULT_EXCLUDE.join(", ")),
       alreadySuggested: suggested,
     });
+    if (args.threadId !== null && result.skill !== null) hinted.record(args.threadId, result.skill, Date.now());
     await pushLog({
       at: Date.now(),
       threadId: args.threadId,
@@ -1353,6 +1358,12 @@ export function createSkillsHubService(
         return relevanceBlock(ran.result.skill);
       }
       case "skills-cards": {
+        const show = flag(args, "--show");
+        if (show !== null) {
+          const stored = (await readCards())[show];
+          if (stored === undefined) return tp("Карточки для {0} нет", show);
+          return JSON.stringify(stored, null, 2);
+        }
         if (args.includes("--refresh")) {
           if (args.includes("--wait")) await cardWriter.run();
           else kickCards();
@@ -1408,7 +1419,7 @@ export const SKILLS_CLI_USAGE = [
   "  bb tools skills-move <навык> \"Раздел/Подраздел\"  Перенести навык вручную",
   "  bb tools skills-classify [--wait]           Разложить навыки без категории",
   "  bb tools skills-suggest --message <текст> [--prev-user <текст>] [--prev-assistant <текст>] [--thread <id>] [--json]  Какой навык подходит к сообщению",
-  "  bb tools skills-cards [--refresh] [--wait] [--json]  Карточки маршрутизации навыков",
+  "  bb tools skills-cards [--refresh] [--wait] [--json] [--show <навык>]  Карточки маршрутизации навыков",
   "  bb tools skills-suggest-log [--limit N] [--json]  Журнал подбора навыков",
   "  bb tools skills-remove <навык>              Убрать навык с хаба в архив",
   "  bb tools skills-machines                    Копии навыков на машинах",

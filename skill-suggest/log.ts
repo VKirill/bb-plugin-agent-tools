@@ -31,3 +31,32 @@ export function alreadySuggested(log: readonly SuggestLogEntry[], threadId: stri
   }
   return names;
 }
+
+const MEMORY_THREADS_MAX = 1000;
+
+/**
+ * Skills already hinted per thread, in memory. The shared log keeps only the
+ * last SUGGEST_LOG_MAX entries across all threads, so with a hint on every
+ * turn an early hint can scroll out of it and come back; this map does not.
+ * The log still covers the time after a plugin restart.
+ */
+export class ThreadSkillMemory {
+  private readonly threads = new Map<string, Map<string, number>>();
+
+  record(threadId: string, skill: string, at: number): void {
+    const skills = this.threads.get(threadId) ?? new Map<string, number>();
+    skills.set(skill, at);
+    this.threads.delete(threadId);
+    this.threads.set(threadId, skills);
+    if (this.threads.size > MEMORY_THREADS_MAX) {
+      const oldest = this.threads.keys().next().value;
+      if (oldest !== undefined) this.threads.delete(oldest);
+    }
+  }
+
+  recent(threadId: string, now: number): string[] {
+    const skills = this.threads.get(threadId);
+    if (skills === undefined) return [];
+    return [...skills].filter(([, at]) => now - at <= ALREADY_SUGGESTED_MS).map(([skill]) => skill);
+  }
+}

@@ -35,7 +35,8 @@ measured on real BB traffic.
 3. **Pass 2** (one request): a Choice over the shortlist with full cards, plus one `fits::<name>` Noul
    per candidate.
 4. **Decision:** suggest the pass-2 winner when the gate mean ≥ 0.6 and the best `fits` ≥ 0.5, unless
-   it was already suggested in the same thread in the last 6 h. Errors fail open (no suggestion).
+   it was already suggested in the same thread in the last 6 h (per-thread memory in the plugin plus the
+   log after a restart). The hint also tells the agent not to reload a skill it already loaded. Errors fail open (no suggestion).
 
 State sent to Jev: `request` (the message, 2000 chars) and `recent_context` (previous user message,
 600 chars, and the tail of the agent's last reply, 900 chars). Payload keys are sorted at every level:
@@ -105,7 +106,7 @@ points at `skill_read` instead.
 | Surface | What it does |
 |---|---|
 | `bb tools skills-suggest --message <text> [--prev-user …] [--prev-assistant …] [--thread <id>] [--json]` | prints a `<skill_relevance>` block or nothing; the caller's thread id is used when `--thread` is absent |
-| `bb tools skills-cards [--refresh] [--wait] [--json]` | card counts; queues stale cards |
+| `bb tools skills-cards [--refresh] [--wait] [--json] [--show <skill>]` | card counts; queues stale cards; `--show` prints one card |
 | `bb tools skills-suggest-log [--limit N] [--json]` | last entries of the 200-entry log (KV `skillSuggestLog`) |
 | tools `skills_find`, `skill_read` | ranked search and SKILL.md / file reading for ordinary threads; setting `skillsSuggestTools`, off by default |
 
