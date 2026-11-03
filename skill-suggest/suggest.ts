@@ -321,11 +321,13 @@ export async function find(
   return candidates.slice(0, Math.max(1, limit));
 }
 
-export function relevanceBlock(skill: string | null): string {
+/** `skill_read` names the plugin tool; without it the agent loads the skill natively. */
+export function relevanceBlock(skill: string | null, opts: { skillRead?: boolean } = {}): string {
   if (skill === null) return "";
+  const how = opts.skillRead === false ? `Load the ${skill} skill (its SKILL.md) before acting.` : "Read its SKILL.md with skill_read before acting.";
   return [
     "<skill_relevance>",
-    `Relevant to the current request: ${skill}. Read its SKILL.md with skill_read before acting. Ignore this if it does not fit what the user actually asked for.`,
+    `Relevant to the current request: ${skill}. ${how} Ignore this if it does not fit what the user actually asked for.`,
     "</skill_relevance>",
   ].join("\n");
 }

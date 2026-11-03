@@ -559,6 +559,12 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("В обычных тредах агенту доступны поиск и чтение навыков хаба. Выключено по умолчанию, пока подбор проходит теневую проверку."),
       default: false,
     },
+    skillsSuggestInject: {
+      type: "boolean",
+      label: t("Подбор навыков: подсказка в каждом ходе"),
+      description: t("Перед отправкой сообщения пользователя агенту Jev подбирает навык и добавляет скрытую для чата подсказку. Ход начинается примерно на секунду позже, над полем ввода на миг появляется строка очереди. Нужен ключ TypeSafe."),
+      default: false,
+    },
     skillsSuggestGate: {
       type: "string",
       label: t("Подбор навыков: порог «нужен ли навык»"),
@@ -596,6 +602,7 @@ export default async function plugin(bb: BbPluginApi) {
       jevApiKey: config.jevApiKey,
       jevModel: config.jevModel,
       skillsSuggestTools: config.skillsSuggestTools,
+      skillsSuggestInject: config.skillsSuggestInject,
       skillsSuggestGate: config.skillsSuggestGate,
       skillsSuggestFits: config.skillsSuggestFits,
       skillsSuggestExclude: config.skillsSuggestExclude,

@@ -50,7 +50,8 @@ import {
 } from "./skill-suggest/card-writer.ts";
 import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
 import { createHttpJevClient } from "./skill-suggest/jev.ts";
-import { alreadySuggested, appendLog, type SuggestLogEntry } from "./skill-suggest/log.ts";
+import { SkillDispatchInjector, type DispatchContext, type QueuedRow } from "./skill-suggest/dispatch.ts";
+import { alreadySuggested, appendLog, type SuggestLogEntry, type SuggestLogMode } from "./skill-suggest/log.ts";
 import {
   DEFAULT_EXCLUDE,
   DEFAULT_THRESHOLDS,
@@ -270,6 +271,8 @@ export type SkillsHubConfig = {
   jevApiKey: string;
   jevModel: string;
   skillsSuggestTools: boolean;
+  /** Append a skill hint to each user turn through the dispatch hook. */
+  skillsSuggestInject: boolean;
   skillsSuggestGate: string;
   skillsSuggestFits: string;
   skillsSuggestExclude: string;
@@ -511,6 +514,117 @@ export function createSkillsHubService(
   async function pushLog(entry: SuggestLogEntry): Promise<void> {
     await bb.storage.kv.set(KV.suggestLog, appendLog(await readSuggestLog(), entry));
   }
+
+  /** One suggestion, logged. Null result means no Jev key. */
+  async function runSuggest(args: {
+    message: string;
+    prevUser?: string;
+    prevAssistant?: string;
+    threadId: string | null;
+    mode: SuggestLogMode;
+  }) {
+    const config = await readConfig();
+    const key = config.jevApiKey.trim();
+    if (key === "") return null;
+    const log = await readSuggestLog();
+    const suggested = args.threadId === null ? [] : alreadySuggested(log, args.threadId, Date.now());
+    const result = await suggest(createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" }), await loadRoster(), {
+      message: args.message,
+      context: { prevUser: args.prevUser || undefined, prevAssistant: args.prevAssistant || undefined },
+    }, {
+      thresholds: {
+        gate: parseThreshold(config.skillsSuggestGate, DEFAULT_THRESHOLDS.gate),
+        fits: parseThreshold(config.skillsSuggestFits, DEFAULT_THRESHOLDS.fits),
+      },
+      exclude: parseExclude(config.skillsSuggestExclude || DEFAULT_EXCLUDE.join(", ")),
+      alreadySuggested: suggested,
+    });
+    await pushLog({
+      at: Date.now(),
+      threadId: args.threadId,
+      message: args.message.slice(0, 200),
+      skill: result.skill,
+      reason: result.reason ?? "ok",
+      gate: result.gate,
+      fitsMax: Object.values(result.fits).reduce((max, value) => Math.max(max, value), 0),
+      shortlist: result.shortlist,
+      tokens: result.tokens,
+      ms: result.ms,
+      mode: args.mode,
+    });
+    return { result, skillRead: config.skillsSuggestTools === true };
+  }
+
+  // ------------------------------------------------- per-turn hint (dispatch)
+  // The hook must answer synchronously, so the switch is cached and refreshed
+  // in the background at most every few seconds.
+  let injectOn = false;
+  let injectReadAt = 0;
+  function refreshInject(): void {
+    if (Date.now() - injectReadAt < 5_000) return;
+    injectReadAt = Date.now();
+    void readConfig()
+      .then((config) => {
+        injectOn = config.skillsSuggestInject === true && config.jevApiKey.trim() !== "";
+      })
+      .catch(() => undefined);
+  }
+  refreshInject();
+
+  // Conversation context for Jev: the agent's last answer (from thread.idle)
+  // and the user's previous message, kept in memory per thread.
+  const lastAssistant = new Map<string, string>();
+  const lastUser = new Map<string, string>();
+  const CONTEXT_THREADS_MAX = 300;
+  function remember(map: Map<string, string>, threadId: string, text: string): void {
+    map.delete(threadId);
+    map.set(threadId, text.slice(-4000));
+    if (map.size > CONTEXT_THREADS_MAX) {
+      const oldest = map.keys().next().value;
+      if (oldest !== undefined) map.delete(oldest);
+    }
+  }
+
+  const injector = new SkillDispatchInjector({
+    enabled: () => {
+      refreshInject();
+      return injectOn;
+    },
+    suggest: async (threadId, text) => {
+      let prevAssistant = lastAssistant.get(threadId);
+      if (prevAssistant === undefined) {
+        const output = (await bb.sdk.threads.output({ threadId }).catch(() => null)) as { output?: string | null } | null;
+        prevAssistant = output?.output ?? "";
+      }
+      const prevUser = lastUser.get(threadId);
+      remember(lastUser, threadId, text);
+      const ran = await runSuggest({ message: text, prevUser, prevAssistant, threadId, mode: "dispatch" });
+      if (ran === null || ran.result.skill === null) return null;
+      return relevanceBlock(ran.result.skill, { skillRead: ran.skillRead });
+    },
+    updateRow: async (row, content) => {
+      await bb.sdk.threads.queuedMessages.update({
+        threadId: row.threadId,
+        queuedMessageId: row.id,
+        expectedUpdatedAt: row.updatedAt,
+        input: content,
+      } as unknown as Parameters<typeof bb.sdk.threads.queuedMessages.update>[0]);
+    },
+    isHidden: async (threadId) => {
+      const found = (await bb.sdk.threads.get({ threadId }).catch(() => null)) as { visibility?: string; thread?: { visibility?: string } } | null;
+      return (found?.thread?.visibility ?? found?.visibility) === "hidden";
+    },
+    recheck: () => bb.experimental_hooks.recheck("message.dispatch"),
+    waitReason: () => t("Agent Tools: подбираю навык"),
+    now: () => Date.now(),
+    log: (message) => bb.log.warn(message),
+  });
+
+  bb.experimental_hooks.on("message.dispatch", (context) => injector.decide(context as unknown as DispatchContext));
+  bb.events.on("message.queued", ({ entry }) => injector.onQueued(entry as unknown as QueuedRow));
+  bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
+    if (lastAssistantText) remember(lastAssistant, thread.id, lastAssistantText);
+  });
 
   // SKILL.md text only: readHubSkill also lists files and runs `git log` per
   // skill, which is far too slow for a per-turn suggestion over ~300 skills.
@@ -1203,42 +1317,19 @@ export function createSkillsHubService(
         if (message.trim() === "") {
           return t("Укажите сообщение: bb tools skills-suggest --message <текст> [--json]");
         }
-        const prevUser = flag(args, "--prev-user") ?? "";
-        const prevAssistant = flag(args, "--prev-assistant") ?? "";
-        const threadId = flag(args, "--thread") ?? callerThreadId;
-        const key = config.jevApiKey.trim();
-        if (key === "") {
+        const ran = await runSuggest({
+          message,
+          prevUser: flag(args, "--prev-user") ?? "",
+          prevAssistant: flag(args, "--prev-assistant") ?? "",
+          threadId: flag(args, "--thread") ?? callerThreadId,
+          mode: "cli",
+        });
+        if (ran === null) {
           if (json) return JSON.stringify({ skill: null, reason: "error", error: "no Jev key" }, null, 2);
           return t("Ключ TypeSafe (Jev) не задан");
         }
-        const log = await readSuggestLog();
-        const suggested = threadId === null ? [] : alreadySuggested(log, threadId, Date.now());
-        const result = await suggest(createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" }), await loadRoster(), {
-          message,
-          context: { prevUser: prevUser || undefined, prevAssistant: prevAssistant || undefined },
-        }, {
-          thresholds: {
-            gate: parseThreshold(config.skillsSuggestGate, DEFAULT_THRESHOLDS.gate),
-            fits: parseThreshold(config.skillsSuggestFits, DEFAULT_THRESHOLDS.fits),
-          },
-          exclude: parseExclude(config.skillsSuggestExclude || DEFAULT_EXCLUDE.join(", ")),
-          alreadySuggested: suggested,
-        });
-        await pushLog({
-          at: Date.now(),
-          threadId,
-          message: message.slice(0, 200),
-          skill: result.skill,
-          reason: result.reason ?? "ok",
-          gate: result.gate,
-          fitsMax: Object.values(result.fits).reduce((max, value) => Math.max(max, value), 0),
-          shortlist: result.shortlist,
-          tokens: result.tokens,
-          ms: result.ms,
-          mode: "cli",
-        });
-        if (json) return JSON.stringify(result, null, 2);
-        return relevanceBlock(result.skill);
+        if (json) return JSON.stringify(ran.result, null, 2);
+        return relevanceBlock(ran.result.skill);
       }
       case "skills-cards": {
         if (args.includes("--refresh")) {

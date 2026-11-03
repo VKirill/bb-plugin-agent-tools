@@ -1,4 +1,4 @@
-export type SuggestLogMode = "cli" | "tool";
+export type SuggestLogMode = "cli" | "tool" | "dispatch";
 
 export type SuggestLogEntry = {
   at: number;

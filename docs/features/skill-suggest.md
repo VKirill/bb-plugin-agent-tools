@@ -11,6 +11,7 @@ sources:
   - skill-suggest/jev.ts
   - skill-suggest/card-writer.ts
   - skill-suggest/log.ts
+  - skill-suggest/dispatch.ts
   - skills-hub-service.ts
 ---
 # Skill suggestion through Jev
@@ -74,6 +75,30 @@ requests.
 Limits: the judge only saw skills some arm or the agent proposed; thresholds were tuned on the same
 sample; turns were not consecutive, so the per-thread repeat filter was not measured.
 
+## Per-turn hint on stock BB (`skillsSuggestInject`)
+
+Off by default. When on (and a Jev key is set), every user turn gets the suggestion as an
+agent-only prompt block: the agent reads it, the chat does not show it. It works with any provider
+and needs no provider hook and no patched BB core, only public Plugin SDK surfaces:
+
+1. `bb.experimental_hooks.on("message.dispatch")` answers `wait` for a user's `start-turn`
+   (instantly: the hook pass holds a server-wide lock) with `sendAt` = 4 s later.
+2. `bb.events.on("message.queued")` gets the queued row; Jev runs on its visible text with the
+   agent's last reply (`thread.idle`) and the previous user message as context.
+3. `bb.sdk.threads.queuedMessages.update` appends `{ type: "text", visibility: "agent-only" }` with
+   the `<skill_relevance>` block; `bb.experimental_hooks.recheck("message.dispatch")` re-asks.
+4. The hook sees the row is decided (or carries the block) and answers `proceed`.
+
+Passed at once: steers into a running turn (`join-turn`), hidden threads, agent and system
+messages, retries, rows that already carry the block. Fail open: a Jev error or no skill leaves the
+row as is; if the plugin hangs, core re-attempts at `sendAt` and the hook lets a row older than 4 s
+go; a stopped plugin's waits are cleared by core. Cost: the turn starts about a second later and the
+queue row flashes above the composer with the reason "Agent Tools: picking a skill". Messages
+injected by `bb thread tell` from other agents are not touched. Log entries have `mode: "dispatch"`.
+
+The hint names the skill and says to load its SKILL.md natively; with `skillsSuggestTools` on it
+points at `skill_read` instead.
+
 ## Surfaces
 
 | Surface | What it does |
@@ -86,4 +111,4 @@ sample; turns were not consecutive, so the per-thread repeat filter was not meas
 Settings: `jevApiKey` (secret), `jevModel` (`jev-1.14.0`), `skillsSuggestGate`, `skillsSuggestFits`,
 `skillsSuggestExclude`, `skillsSuggestTools`.
 
-Not in this phase: per-turn hooks for Claude Code / OpenCode, a screen, hiding BB's skill list.
+Not in this phase: a screen, hiding BB's skill list.
