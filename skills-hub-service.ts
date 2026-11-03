@@ -566,6 +566,8 @@ export function createSkillsHubService(
     void readConfig()
       .then((config) => {
         injectOn = config.skillsSuggestInject === true && config.jevApiKey.trim() !== "";
+        // Keep the roster warm so a queued turn never waits for a cold build.
+        if (injectOn) void loadRoster().catch(() => undefined);
       })
       .catch(() => undefined);
   }
@@ -593,7 +595,12 @@ export function createSkillsHubService(
     suggest: async (threadId, text) => {
       let prevAssistant = lastAssistant.get(threadId);
       if (prevAssistant === undefined) {
-        const output = (await bb.sdk.threads.output({ threadId }).catch(() => null)) as { output?: string | null } | null;
+        // Only after a plugin restart; a new thread has no output yet. Capped so
+        // the queued turn is not held by a slow read.
+        const output = (await Promise.race([
+          bb.sdk.threads.output({ threadId }).catch(() => null),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+        ])) as { output?: string | null } | null;
         prevAssistant = output?.output ?? "";
       }
       const prevUser = lastUser.get(threadId);
@@ -617,7 +624,7 @@ export function createSkillsHubService(
     recheck: () => bb.experimental_hooks.recheck("message.dispatch"),
     waitReason: () => t("Agent Tools: подбираю навык"),
     now: () => Date.now(),
-    log: (message) => bb.log.warn(message),
+    log: (message) => bb.log.info(message),
   });
 
   bb.experimental_hooks.on("message.dispatch", (context) => injector.decide(context as unknown as DispatchContext));
@@ -661,21 +668,35 @@ export function createSkillsHubService(
   const ROSTER_TTL_MS = 60_000;
   let rosterCache: { at: number; roster: RosterEntry[] } | null = null;
 
-  async function loadRoster(): Promise<RosterEntry[]> {
-    if (rosterCache !== null && Date.now() - rosterCache.at < ROSTER_TTL_MS) return rosterCache.roster;
-    const skills = (await hubSkills()).filter((skill) => !skill.problems.some((problem) => problem.code === "no-skill-md"));
-    const [cards, contents] = await Promise.all([readCards(), skillContents(skills)]);
-    const roster = skills.map((skill) => {
-      const content = contents.get(skill.name) ?? "";
-      return {
-        name: skill.name,
-        description: skill.description ?? "",
-        body: skillBody(content),
-        card: (content !== "" ? manualCard(content) : undefined) ?? cards[skill.name]?.card,
-      };
+  // A cold build reads every SKILL.md (~1.5 s), too slow for a turn that is
+  // waiting in the queue: a stale roster is served once while a fresh one is
+  // built in the background, and concurrent builds share one promise.
+  let rosterBuild: Promise<RosterEntry[]> | null = null;
+  function buildRoster(): Promise<RosterEntry[]> {
+    rosterBuild ??= (async () => {
+      const skills = (await hubSkills()).filter((skill) => !skill.problems.some((problem) => problem.code === "no-skill-md"));
+      const [cards, contents] = await Promise.all([readCards(), skillContents(skills)]);
+      const roster = skills.map((skill) => {
+        const content = contents.get(skill.name) ?? "";
+        return {
+          name: skill.name,
+          description: skill.description ?? "",
+          body: skillBody(content),
+          card: (content !== "" ? manualCard(content) : undefined) ?? cards[skill.name]?.card,
+        };
+      });
+      rosterCache = { at: Date.now(), roster };
+      return roster;
+    })().finally(() => {
+      rosterBuild = null;
     });
-    rosterCache = { at: Date.now(), roster };
-    return roster;
+    return rosterBuild;
+  }
+
+  async function loadRoster(): Promise<RosterEntry[]> {
+    if (rosterCache === null) return buildRoster();
+    if (Date.now() - rosterCache.at >= ROSTER_TTL_MS) void buildRoster().catch(() => undefined);
+    return rosterCache.roster;
   }
 
   async function readCardWriterState() {

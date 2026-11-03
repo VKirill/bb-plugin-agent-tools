@@ -146,3 +146,11 @@ test("relevanceBlock without skill_read names the skill to load", () => {
   assert.match(relevanceBlock("kontur-elba", { skillRead: false }), /Load the kontur-elba skill \(its SKILL\.md\) before acting\./);
   assert.match(relevanceBlock("kontur-elba"), /skill_read/);
 });
+
+test("a thread the hook saw as visible is not looked up on the queue", async () => {
+  const { injector, calls } = setup();
+  injector.decide(ctx());
+  await injector.onQueued(row());
+  assert.equal(calls.hiddenAsked, 0);
+  assert.equal(calls.update.length, 1);
+});

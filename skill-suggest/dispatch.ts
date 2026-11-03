@@ -11,7 +11,8 @@
 // BUDGET_MS even if this plugin hangs, and a row older than the budget passes.
 
 export const SUGGEST_MARKER = "<skill_relevance>";
-export const BUDGET_MS = 4_000;
+/** Fail-open cap, not the usual delay (about a second): core re-attempts at this deadline. */
+export const BUDGET_MS = 8_000;
 /** A thread rarely has more open rows than this; older decisions are dropped. */
 const DECIDED_MAX = 500;
 
@@ -71,6 +72,8 @@ export class SkillDispatchInjector {
   private readonly decided = new Set<string>();
   private readonly inflight = new Set<string>();
   private readonly hiddenThreads = new Set<string>();
+  /** Threads the hook already saw as visible: no lookup needed on the queue. */
+  private readonly visibleThreads = new Set<string>();
 
   private readonly deps: InjectorDeps;
 
@@ -88,6 +91,7 @@ export class SkillDispatchInjector {
       this.hiddenThreads.add(ctx.thread.id);
       return proceed;
     }
+    remember(this.visibleThreads, ctx.thread.id);
     if (hasMarker(ctx.input.blocks)) return proceed;
     if (visibleText(ctx.input.blocks) === "") return proceed;
     const row = ctx.queuedMessage;
@@ -113,12 +117,15 @@ export class SkillDispatchInjector {
     if (text === "") return;
     this.inflight.add(row.id);
     try {
-      if (await deps.isHidden(row.threadId)) {
+      if (!this.visibleThreads.has(row.threadId) && (await deps.isHidden(row.threadId))) {
         this.hiddenThreads.add(row.threadId);
         return;
       }
       const block = await deps.suggest(row.threadId, text);
-      if (block !== null && block !== "") await deps.updateRow(row, [...row.content, agentOnlyBlock(block)]);
+      if (block !== null && block !== "") {
+        await deps.updateRow(row, [...row.content, agentOnlyBlock(block)]);
+        deps.log(`skill hint added to ${row.threadId} ${deps.now() - row.createdAt} ms after queueing`);
+      }
     } catch (cause) {
       deps.log(`skill suggest on dispatch: ${cause instanceof Error ? cause.message : String(cause)}`);
     } finally {
@@ -129,9 +136,14 @@ export class SkillDispatchInjector {
   }
 
   private markDecided(id: string): void {
-    this.decided.add(id);
-    if (this.decided.size <= DECIDED_MAX) return;
-    const oldest = this.decided.values().next().value;
-    if (oldest !== undefined) this.decided.delete(oldest);
+    remember(this.decided, id);
   }
+}
+
+function remember(set: Set<string>, id: string): void {
+  set.delete(id);
+  set.add(id);
+  if (set.size <= DECIDED_MAX) return;
+  const oldest = set.values().next().value;
+  if (oldest !== undefined) set.delete(oldest);
 }
