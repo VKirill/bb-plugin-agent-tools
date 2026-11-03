@@ -39,7 +39,12 @@ export type DispatchContext = {
 export type DispatchDecision = { action: "proceed" } | { action: "wait"; reason: string; sendAt: number };
 
 export type InjectorDeps = {
-  enabled(): boolean;
+  /** This plugin's id: rows held by our own wait carry it in `waitingOn`. */
+  pluginId: string;
+  /** Cached switch; null until the first settings read after a (re)load. */
+  enabled(): boolean | null;
+  /** The switch, read now if the cache is not filled yet. */
+  ensureEnabled(): Promise<boolean>;
   /** Visible text of the message plus the thread → the block to add, or null. */
   suggest(threadId: string, text: string): Promise<string | null>;
   updateRow(row: QueuedRow, content: DispatchBlock[]): Promise<void>;
@@ -85,7 +90,9 @@ export class SkillDispatchInjector {
   decide(ctx: DispatchContext): DispatchDecision {
     const { deps } = this;
     const proceed = { action: "proceed" } as const;
-    if (!deps.enabled()) return proceed;
+    // Unknown right after a reload: hold the turn; the queue listener reads the
+    // setting and lets the row go at once when the hint is off.
+    if (deps.enabled() === false) return proceed;
     if (ctx.attempt !== "start-turn") return proceed;
     if (ctx.thread.visibility === "hidden") {
       this.hiddenThreads.add(ctx.thread.id);
@@ -108,16 +115,29 @@ export class SkillDispatchInjector {
   /** `message.queued` listener. */
   async onQueued(row: QueuedRow): Promise<void> {
     const { deps } = this;
-    if (!deps.enabled()) return;
     if (this.decided.has(row.id) || this.inflight.has(row.id)) return;
-    if (row.initiator !== "user" || row.payload?.kind === "retry") return;
-    if (hasMarker(row.content)) return;
-    if (this.hiddenThreads.has(row.threadId)) return;
     const text = visibleText(row.content);
-    if (text === "") return;
+    const skip =
+      row.initiator !== "user" ||
+      row.payload?.kind === "retry" ||
+      hasMarker(row.content) ||
+      this.hiddenThreads.has(row.threadId) ||
+      text === "";
+    if (skip) {
+      // The hook held an inline send before it could see who sent it (an agent's
+      // message, say); the hook now passes such a row, so ask core again at once
+      // instead of letting it sit until the deadline. Only our own holds: a row
+      // another plugin holds is that plugin's to release.
+      if (row.waitingOn?.kind === "plugin" && row.waitingOn.pluginId === deps.pluginId) {
+        this.markDecided(row.id);
+        await deps.recheck().catch(() => undefined);
+      }
+      return;
+    }
     this.inflight.add(row.id);
     const started = deps.now();
     try {
+      if (!(await deps.ensureEnabled())) return;
       if (!this.visibleThreads.has(row.threadId) && (await deps.isHidden(row.threadId))) {
         this.hiddenThreads.add(row.threadId);
         return;

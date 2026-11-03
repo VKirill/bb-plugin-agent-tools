@@ -19,7 +19,9 @@ function setup(overrides: Partial<InjectorDeps> = {}) {
   const calls = { suggest: [] as string[], update: [] as DispatchBlock[][], recheck: 0, hiddenAsked: 0 };
   let now = NOW;
   const deps: InjectorDeps = {
+    pluginId: "agent-tools",
     enabled: () => true,
+    ensureEnabled: async () => true,
     suggest: async (_threadId, text) => {
       calls.suggest.push(text);
       return relevanceBlock("kontur-elba", { skillRead: false });
@@ -162,4 +164,23 @@ test("thread memory keeps hinted skills for six hours per thread", async () => {
   assert.deepEqual(memory.recent("thr_a", ALREADY_SUGGESTED_MS), ["kontur-elba"]);
   assert.deepEqual(memory.recent("thr_a", ALREADY_SUGGESTED_MS + 1), []);
   assert.deepEqual(memory.recent("thr_b", 0), []);
+});
+
+test("an agent's inline send held by our wait is released at once", async () => {
+  const { injector, calls } = setup();
+  await injector.onQueued(row({ initiator: "agent" }));
+  assert.equal(calls.recheck, 1);
+  assert.equal(calls.suggest.length, 0);
+  // A row another plugin holds is left to that plugin.
+  await injector.onQueued(row({ id: "q9", initiator: "agent", waitingOn: { kind: "plugin", pluginId: "lane-pilot" } }));
+  assert.equal(calls.recheck, 1);
+});
+
+test("unknown switch after a reload holds the turn; off releases it without Jev", async () => {
+  const { injector, calls } = setup({ enabled: () => null, ensureEnabled: async () => false });
+  assert.equal(injector.decide(ctx()).action, "wait");
+  await injector.onQueued(row());
+  assert.equal(calls.suggest.length, 0);
+  assert.equal(calls.recheck, 1);
+  assert.equal(injector.decide(ctx({ queuedMessage: row() })).action, "proceed");
 });

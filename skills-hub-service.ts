@@ -573,18 +573,19 @@ export function createSkillsHubService(
   // ------------------------------------------------- per-turn hint (dispatch)
   // The hook must answer synchronously, so the switch is cached and refreshed
   // in the background at most every few seconds.
-  let injectOn = false;
+  let injectOn: boolean | null = null;
   let injectReadAt = 0;
+  async function readInject(): Promise<boolean> {
+    const config = await readConfig();
+    injectOn = config.skillsSuggestInject === true && config.jevApiKey.trim() !== "";
+    // Keep the roster warm so a queued turn never waits for a cold build.
+    if (injectOn) void loadRoster().catch(() => undefined);
+    return injectOn;
+  }
   function refreshInject(): void {
     if (Date.now() - injectReadAt < 5_000) return;
     injectReadAt = Date.now();
-    void readConfig()
-      .then((config) => {
-        injectOn = config.skillsSuggestInject === true && config.jevApiKey.trim() !== "";
-        // Keep the roster warm so a queued turn never waits for a cold build.
-        if (injectOn) void loadRoster().catch(() => undefined);
-      })
-      .catch(() => undefined);
+    void readInject().catch(() => undefined);
   }
   refreshInject();
 
@@ -603,10 +604,12 @@ export function createSkillsHubService(
   }
 
   const injector = new SkillDispatchInjector({
+    pluginId: bb.pluginId,
     enabled: () => {
       refreshInject();
       return injectOn;
     },
+    ensureEnabled: async () => injectOn ?? (await readInject().catch(() => false)),
     suggest: async (threadId, text) => {
       let prevAssistant = lastAssistant.get(threadId);
       if (prevAssistant === undefined) {
