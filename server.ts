@@ -77,6 +77,7 @@ import {
 } from "./opencode";
 import { readFile } from "node:fs/promises";
 import { createSkillsHubService, skillsRpcContract, SKILLS_CLI_USAGE } from "./skills-hub-service.ts";
+import { DEFAULT_EXCLUDE } from "./skill-suggest/suggest.ts";
 import { homedir, hostname as osHostname } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -539,6 +540,43 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("ID проекта BB. Пусто — личный проект."),
       default: "",
     },
+    jevApiKey: {
+      type: "string",
+      label: t("Подбор навыков: ключ TypeSafe (Jev)"),
+      description: t("Секретный ключ API TypeSafe. Пусто — подбор на ход не вызывается, skills_find ищет по словам."),
+      secret: true,
+      default: "",
+    },
+    jevModel: {
+      type: "string",
+      label: t("Подбор навыков: модель Jev"),
+      description: t("Идентификатор модели System One, например jev-1.14.0."),
+      default: "jev-1.14.0",
+    },
+    skillsSuggestTools: {
+      type: "boolean",
+      label: t("Подбор навыков: инструменты skills_find и skill_read"),
+      description: t("В обычных тредах агенту доступны поиск и чтение навыков хаба. Выключено по умолчанию, пока подбор проходит теневую проверку."),
+      default: false,
+    },
+    skillsSuggestGate: {
+      type: "string",
+      label: t("Подбор навыков: порог «нужен ли навык»"),
+      description: t("Число от 0 до 1. Ниже порога навык не предлагается."),
+      default: "0.6",
+    },
+    skillsSuggestFits: {
+      type: "string",
+      label: t("Подбор навыков: порог «навык подходит»"),
+      description: t("Число от 0 до 1. Ниже порога выбранный навык считается неподходящим."),
+      default: "0.5",
+    },
+    skillsSuggestExclude: {
+      type: "string",
+      label: t("Подбор навыков: никогда не предлагать"),
+      description: t("Имена через запятую. Эти навыки агент читает по правилам, их не предлагаем."),
+      default: DEFAULT_EXCLUDE.join(", "),
+    },
   });
   // Настройки читаем в момент использования, а не один раз при старте: иначе
   //новый ключ, вписанный в интерфейсе, начинал работать только после перезагрузки.
@@ -555,6 +593,12 @@ export default async function plugin(bb: BbPluginApi) {
       classifierProjectId: config.skillsClassifierProjectId,
       classifierAuto: config.skillsClassifierAuto,
       offerCleanup: config.skillsOfferCleanup,
+      jevApiKey: config.jevApiKey,
+      jevModel: config.jevModel,
+      skillsSuggestTools: config.skillsSuggestTools,
+      skillsSuggestGate: config.skillsSuggestGate,
+      skillsSuggestFits: config.skillsSuggestFits,
+      skillsSuggestExclude: config.skillsSuggestExclude,
     };
   }, async (patch) => {
     await settings.experimental_set(patch);
@@ -562,9 +606,9 @@ export default async function plugin(bb: BbPluginApi) {
   // Only the classifier's hidden threads get the category tools; every other
   // thread keeps this plugin's skill as before.
   bb.agents.configure((context) => {
-    const classifier = skillsHub.configureThread(context.pluginMetadata);
-    if (classifier !== null) return { tools: classifier.tools, skills: [], instructions: classifier.instructions };
-    return { tools: [], skills: ["agent-tools"] };
+    const special = skillsHub.configureThread(context.pluginMetadata);
+    if (special !== null) return { tools: special.tools, skills: [], instructions: special.instructions };
+    return { tools: skillsHub.publicTools(), skills: ["agent-tools"] };
   });
 
   // ---------------------------------------------------------------- storage
@@ -2461,6 +2505,21 @@ export default async function plugin(bb: BbPluginApi) {
       },
       { name: "skills-move", summary: t("Перенести навык в категорию вручную"), usage: t('bb tools skills-move <навык> "Раздел/Подраздел"') },
       { name: "skills-classify", summary: t("Разложить навыки без категории"), usage: "bb tools skills-classify [--wait]" },
+      {
+        name: "skills-suggest",
+        summary: t("Какой навык подходит к сообщению"),
+        usage: "bb tools skills-suggest --message <text> [--prev-user <text>] [--prev-assistant <text>] [--thread <id>] [--json]",
+      },
+      {
+        name: "skills-cards",
+        summary: t("Карточки маршрутизации навыков"),
+        usage: "bb tools skills-cards [--refresh] [--wait] [--json]",
+      },
+      {
+        name: "skills-suggest-log",
+        summary: t("Журнал подбора навыков"),
+        usage: "bb tools skills-suggest-log [--limit N] [--json]",
+      },
       { name: "skills-remove", summary: t("Убрать навык с хаба в архив"), usage: t("bb tools skills-remove <навык>") },
       { name: "skills-machines", summary: t("Копии навыков на машинах"), usage: "bb tools skills-machines [--json]" },
       {
@@ -2525,7 +2584,7 @@ export default async function plugin(bb: BbPluginApi) {
             const isPath = command === "skills-publish" && !arg.startsWith("--") && list[index - 1] !== "--host";
             return isPath && cwd && !path.isAbsolute(arg) && !arg.startsWith("~") ? path.join(cwd, arg) : arg;
           });
-        const text = await skillsHub.cli(command, skillArgs, callerHostId);
+        const text = await skillsHub.cli(command, skillArgs, callerHostId, ctx?.threadId ?? null);
         if (text !== null) return { exitCode: 0, stdout: text };
       }
       switch (command) {

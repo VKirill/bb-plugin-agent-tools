@@ -37,6 +37,32 @@ import {
 import { skillBodyExcerpt } from "./skill-meta.ts";
 import { bbServerSkillsDir } from "./skills-server.ts";
 import { t, tp } from "./i18n.ts";
+import {
+  CARD_WRITER_ROLE,
+  EMPTY_CARD_WRITER_STATE,
+  SkillCardWriter,
+  TOOL_CARD_SAVE,
+  applyCardSave,
+  cardStats,
+  formatSiblings,
+  siblingsFor,
+  type CardJob,
+} from "./skill-suggest/card-writer.ts";
+import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
+import { createHttpJevClient } from "./skill-suggest/jev.ts";
+import { alreadySuggested, appendLog, type SuggestLogEntry } from "./skill-suggest/log.ts";
+import {
+  DEFAULT_EXCLUDE,
+  DEFAULT_THRESHOLDS,
+  find,
+  formatFindList,
+  keywordFind,
+  parseExclude,
+  parseThreshold,
+  relevanceBlock,
+  suggest,
+  type RosterEntry,
+} from "./skill-suggest/suggest.ts";
 
 // ---------------------------------------------------------------- contract
 
@@ -241,6 +267,12 @@ export type SkillsHubConfig = {
   classifierAuto: boolean;
   /** Off by default: the plugin never offers to touch skill folders on machines. */
   offerCleanup: boolean;
+  jevApiKey: string;
+  jevModel: string;
+  skillsSuggestTools: boolean;
+  skillsSuggestGate: string;
+  skillsSuggestFits: string;
+  skillsSuggestExclude: string;
 };
 
 export type SkillsHubConfigPatch = Partial<{
@@ -258,7 +290,13 @@ const KV = {
   review: "skillReview",
   classifier: "skillClassifier",
   machines: "skillMachines",
+  cards: "skillCards",
+  cardWriter: "skillCardWriter",
+  suggestLog: "skillSuggestLog",
 } as const;
+
+const SKILL_READ_MAX = 60_000;
+const SUGGEST_TOOLS = ["skills_find", "skill_read"] as const;
 
 export function createSkillsHubService(
   bb: BbPluginApi,
@@ -330,6 +368,46 @@ export function createSkillsHubService(
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  async function spawnHidden(title: string, role: string, prompt: string): Promise<string> {
+    const config = await readConfig();
+    const result = (await bb.sdk.threads.spawn({
+      projectId: await personalProjectId(),
+      providerId: config.classifierProvider,
+      // Empty: the provider's own default model.
+      ...(config.classifierModel !== "" ? { model: config.classifierModel } : {}),
+      environment: { type: "project-default" },
+      visibility: "hidden",
+      title,
+      pluginMetadata: { role },
+      prompt,
+    } as Parameters<typeof bb.sdk.threads.spawn>[0])) as { id?: string; thread?: { id: string } };
+    const id = result.thread?.id ?? result.id;
+    if (id === undefined) throw new Error("BB did not return the hidden thread id");
+    return id;
+  }
+
+  const sendMessage = async (threadId: string, text: string) => {
+    await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{ type: "text", text }] } as Parameters<typeof bb.sdk.threads.send>[0]);
+  };
+
+  const waitIdleFor = (label: string) => async (threadId: string, timeoutMs: number) => {
+    const started = Date.now();
+    let seenBusy = false;
+    await sleep(2000);
+    while (Date.now() - started < timeoutMs) {
+      const status = await threadStatus(threadId);
+      if (status === "error") throw new Error(`the ${label} thread failed`);
+      if (status !== null && status !== "idle") seenBusy = true;
+      if (status === "idle" && (seenBusy || Date.now() - started > 20_000)) return;
+      await sleep(2000);
+    }
+    throw new Error(`the ${label} thread did not answer in time`);
+  };
+
+  const archiveThread = async (threadId: string) => {
+    await (bb.sdk.threads as unknown as { archive(args: { threadId: string }): Promise<unknown> }).archive({ threadId });
+  };
+
   const classifier = new SkillClassifier({
     readSkills: async () => {
       const skills = await hubSkills(true);
@@ -347,42 +425,10 @@ export function createSkillsHubService(
     },
     readState,
     writeState: (state) => bb.storage.kv.set(KV.classifier, state),
-    spawnThread: async (prompt) => {
-      const config = await readConfig();
-      const result = (await bb.sdk.threads.spawn({
-        projectId: await personalProjectId(),
-        providerId: config.classifierProvider,
-        // Empty: the provider's own default model.
-        ...(config.classifierModel !== "" ? { model: config.classifierModel } : {}),
-        environment: { type: "project-default" },
-        visibility: "hidden",
-        title: "Agent Tools: skill categories",
-        pluginMetadata: { role: CLASSIFIER_ROLE },
-        prompt,
-      } as Parameters<typeof bb.sdk.threads.spawn>[0])) as { id?: string; thread?: { id: string } };
-      const id = result.thread?.id ?? result.id;
-      if (id === undefined) throw new Error("BB did not return the classifier thread id");
-      return id;
-    },
-    sendMessage: async (threadId, text) => {
-      await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{ type: "text", text }] } as Parameters<typeof bb.sdk.threads.send>[0]);
-    },
-    waitIdle: async (threadId, timeoutMs) => {
-      const started = Date.now();
-      let seenBusy = false;
-      await sleep(2000);
-      while (Date.now() - started < timeoutMs) {
-        const status = await threadStatus(threadId);
-        if (status === "error") throw new Error("the classifier thread failed");
-        if (status !== null && status !== "idle") seenBusy = true;
-        if (status === "idle" && (seenBusy || Date.now() - started > 20_000)) return;
-        await sleep(2000);
-      }
-      throw new Error("the classifier thread did not answer in time");
-    },
-    archiveThread: async (threadId) => {
-      await (bb.sdk.threads as unknown as { archive(args: { threadId: string }): Promise<unknown> }).archive({ threadId });
-    },
+    spawnThread: (prompt) => spawnHidden("Agent Tools: skill categories", CLASSIFIER_ROLE, prompt),
+    sendMessage,
+    waitIdle: waitIdleFor("classifier"),
+    archiveThread,
     now: () => Date.now(),
     log: (message) => bb.log.info(message),
   });
@@ -396,6 +442,115 @@ export function createSkillsHubService(
     bb.log.info("skill classifier: resuming after a reload");
     void classifier.run();
   })().catch((cause: unknown) => bb.log.warn(`skill classifier resume: ${String(cause)}`));
+
+  let suggestToolsOn = false;
+  void readConfig()
+    .then((config) => {
+      suggestToolsOn = config.skillsSuggestTools === true;
+    })
+    .catch(() => undefined);
+
+  async function readCards(): Promise<Record<string, StoredCard>> {
+    return (await bb.storage.kv.get<Record<string, StoredCard>>(KV.cards)) ?? {};
+  }
+
+  let cardsLock: Promise<unknown> = Promise.resolve();
+  function withCards<T>(fn: (cards: Record<string, StoredCard>) => Promise<{ cards: Record<string, StoredCard>; value: T }>): Promise<T> {
+    const next = cardsLock.then(async () => {
+      const result = await fn(await readCards());
+      await bb.storage.kv.set(KV.cards, result.cards);
+      rosterCache = null;
+      return result.value;
+    });
+    cardsLock = next.catch(() => undefined);
+    return next;
+  }
+
+  async function readSuggestLog(): Promise<SuggestLogEntry[]> {
+    return (await bb.storage.kv.get<SuggestLogEntry[]>(KV.suggestLog)) ?? [];
+  }
+
+  async function pushLog(entry: SuggestLogEntry): Promise<void> {
+    await bb.storage.kv.set(KV.suggestLog, appendLog(await readSuggestLog(), entry));
+  }
+
+  // SKILL.md text only: readHubSkill also lists files and runs `git log` per
+  // skill, which is far too slow for a per-turn suggestion over ~300 skills.
+  async function skillContents(skills: HubSkill[]): Promise<Map<string, string>> {
+    const texts = await Promise.all(
+      skills.map(async (skill) => [skill.name, (await readHubSkillFile(root, skill.name, "SKILL.md")) ?? ""] as const),
+    );
+    return new Map(texts);
+  }
+
+  async function loadJobs(): Promise<CardJob[]> {
+    const skills = await hubSkills(true);
+    const store = await readStore();
+    const descriptions = new Map(skills.map((skill) => [skill.name, skill.description ?? ""]));
+    const contents = await skillContents(skills);
+    const jobs: CardJob[] = [];
+    for (const skill of skills) {
+      if (skill.problems.some((problem) => problem.code === "no-skill-md")) continue;
+      const content = contents.get(skill.name) ?? "";
+      jobs.push({
+        name: skill.name,
+        description: skill.description ?? "",
+        body: skillBody(content),
+        siblings: formatSiblings(siblingsFor(skill.name, store, descriptions)),
+        hash: contentHash(content),
+        manual: content === "" ? undefined : (manualCard(content) ?? undefined),
+      });
+    }
+    return jobs;
+  }
+
+  // The roster sits on the per-turn path: rebuilt at most once a minute, and
+  // right away after a card is saved.
+  const ROSTER_TTL_MS = 60_000;
+  let rosterCache: { at: number; roster: RosterEntry[] } | null = null;
+
+  async function loadRoster(): Promise<RosterEntry[]> {
+    if (rosterCache !== null && Date.now() - rosterCache.at < ROSTER_TTL_MS) return rosterCache.roster;
+    const skills = (await hubSkills()).filter((skill) => !skill.problems.some((problem) => problem.code === "no-skill-md"));
+    const [cards, contents] = await Promise.all([readCards(), skillContents(skills)]);
+    const roster = skills.map((skill) => {
+      const content = contents.get(skill.name) ?? "";
+      return {
+        name: skill.name,
+        description: skill.description ?? "",
+        body: skillBody(content),
+        card: (content !== "" ? manualCard(content) : undefined) ?? cards[skill.name]?.card,
+      };
+    });
+    rosterCache = { at: Date.now(), roster };
+    return roster;
+  }
+
+  async function readCardWriterState() {
+    return { ...EMPTY_CARD_WRITER_STATE, ...((await bb.storage.kv.get<typeof EMPTY_CARD_WRITER_STATE>(KV.cardWriter)) ?? {}) };
+  }
+
+  const cardWriter = new SkillCardWriter({
+    readJobs: loadJobs,
+    readCards,
+    writeCards: (cards) => withCards(async () => ({ cards, value: undefined })),
+    readState: readCardWriterState,
+    writeState: (state) => bb.storage.kv.set(KV.cardWriter, state),
+    spawnThread: (prompt) => spawnHidden("Agent Tools: skill cards", CARD_WRITER_ROLE, prompt),
+    sendMessage,
+    waitIdle: waitIdleFor("skill card writer"),
+    archiveThread,
+    now: () => Date.now(),
+    log: (message) => bb.log.info(message),
+  });
+
+  void (async () => {
+    const state = await readCardWriterState();
+    if (!state.running) return;
+    await bb.storage.kv.set(KV.cardWriter, { ...state, running: false });
+    bb.log.info("skill card writer: resuming after a reload");
+    void cardWriter.run();
+  })().catch((cause: unknown) => bb.log.warn(`skill card writer resume: ${String(cause)}`));
 
   // ------------------------------------------------------------- tools
   bb.agents.registerTool({
@@ -432,13 +587,116 @@ export function createSkillsHubService(
     },
   });
 
-  /** Tools and instructions for the classifier's own threads; nothing for other threads. */
+  bb.agents.registerTool({
+    name: TOOL_CARD_SAVE,
+    description:
+      "Agent Tools card writer: saves the routing card for one hub skill (does, not_for, neighbors, examples, triggers_ru).",
+    parameters: z.object({
+      skill: z.string().min(1).max(120),
+      card: skillCardSchema,
+    }),
+    execute: async (params) => {
+      const jobs = new Map((await loadJobs()).map((job) => [job.name, job]));
+      const outcome = await withCards(async (cards) => {
+        const result = applyCardSave(cards, params, jobs, Date.now());
+        return { cards: result.cards, value: result };
+      });
+      if (outcome.outcome === "rejected") {
+        return { content: [{ type: "text", text: `Rejected: ${outcome.message}` }], isError: true };
+      }
+      return outcome.message;
+    },
+  });
+
+  bb.agents.registerTool({
+    name: "skills_find",
+    description:
+      "Find the BB skills that fit a task. Returns up to `limit` skills ranked for the query with what each does and is not for. Call it before a task that may need a specific tool, service or procedure, then read the chosen one with skill_read.",
+    parameters: z.object({
+      query: z.string().min(1).max(2000),
+      context: z.string().max(2000).optional(),
+      limit: z.number().min(1).max(10).optional(),
+    }),
+    execute: async ({ query, context, limit }) => {
+      const started = Date.now();
+      const config = await readConfig();
+      suggestToolsOn = config.skillsSuggestTools === true;
+      const roster = await loadRoster();
+      const cap = limit ?? 5;
+      const client = config.jevApiKey.trim() === "" ? null : createHttpJevClient({ apiKey: config.jevApiKey.trim(), model: config.jevModel.trim() || "jev-1.14.0" });
+      let candidates: Awaited<ReturnType<typeof find>> = [];
+      let note = "";
+      try {
+        candidates = client === null ? keywordFind(roster, query, cap) : await find(client, roster, query, context, cap);
+        if (client === null) note = "Jev is not configured; ranked by keyword match.\n";
+      } catch (cause) {
+        candidates = [];
+        note = `Skill search failed open: ${cause instanceof Error ? cause.message : String(cause)}\n`;
+      }
+      const fitsMax = candidates.reduce((max, item) => Math.max(max, item.fits), 0);
+      await pushLog({
+        at: Date.now(),
+        threadId: null,
+        message: query.slice(0, 200),
+        skill: candidates[0]?.name ?? null,
+        reason: client === null ? "keyword" : "find",
+        gate: 0,
+        fitsMax,
+        shortlist: candidates.map((item) => item.name),
+        tokens: 0,
+        ms: Date.now() - started,
+        mode: "tool",
+      });
+      return `${note}${formatFindList(candidates)}`;
+    },
+  });
+
+  bb.agents.registerTool({
+    name: "skill_read",
+    description: "Read a BB skill's SKILL.md, or a file it references, from the BB hub.",
+    parameters: z.object({
+      name: z.string().min(1).max(120),
+      file: z.string().max(500).optional(),
+    }),
+    execute: async ({ name, file }) => {
+      if (file !== undefined && file !== "") {
+        const text = await readHubSkillFile(root, name, file);
+        if (text === null) return { content: [{ type: "text", text: `unknown skill file ${name}/${file}` }], isError: true };
+        return text.length > SKILL_READ_MAX ? text.slice(0, SKILL_READ_MAX) : text;
+      }
+      const detail = await readHubSkill(root, name);
+      if (detail === null) return { content: [{ type: "text", text: `unknown skill ${name}` }], isError: true };
+      const content = detail.content ?? "";
+      const files = detail.fileList.map((item) => `- ${item.path}`).join("\n");
+      const body = `${content.slice(0, SKILL_READ_MAX)}\n\nFiles:\n${files === "" ? "- (none)" : files}`;
+      return body.length > SKILL_READ_MAX ? body.slice(0, SKILL_READ_MAX) : body;
+    },
+  });
+
+  /** Tools and instructions for hidden helper threads; public find/read tools are listed separately. */
   function configureThread(pluginMetadata: Readonly<Record<string, unknown>>): { tools: string[]; instructions?: string } | null {
-    if (pluginMetadata.role !== CLASSIFIER_ROLE) return null;
-    return {
-      tools: [TOOL_TREE, TOOL_ASSIGN],
-      instructions: `You are the Agent Tools skill classifier. Use only ${TOOL_TREE} and ${TOOL_ASSIGN}.`,
-    };
+    if (pluginMetadata.role === CLASSIFIER_ROLE) {
+      return {
+        tools: [TOOL_TREE, TOOL_ASSIGN],
+        instructions: `You are the Agent Tools skill classifier. Use only ${TOOL_TREE} and ${TOOL_ASSIGN}.`,
+      };
+    }
+    if (pluginMetadata.role === CARD_WRITER_ROLE) {
+      return {
+        tools: [TOOL_CARD_SAVE],
+        instructions: `You are the Agent Tools skill card writer. Use only ${TOOL_CARD_SAVE}.`,
+      };
+    }
+    return null;
+  }
+
+  function publicTools(): string[] {
+    void readConfig()
+      .then((config) => {
+        suggestToolsOn = config.skillsSuggestTools === true;
+      })
+      .catch(() => undefined);
+    return suggestToolsOn ? [...SUGGEST_TOOLS] : [];
   }
 
   // ------------------------------------------------------------- machines
@@ -521,7 +779,11 @@ export function createSkillsHubService(
   }
 
   function kick(): void {
-    void classifier.run();
+    void classifier.run().then(() => cardWriter.run());
+  }
+
+  function kickCards(): void {
+    void cardWriter.run();
   }
 
   async function moveSkill(skill: string, sectionId: string, subsectionId: string): Promise<void> {
@@ -750,7 +1012,7 @@ export function createSkillsHubService(
   }
 
   /** Handles the hub skill subcommands; null means "not mine". */
-  async function cli(command: string, args: string[], callerHostId: string | null): Promise<string | null> {
+  async function cli(command: string, args: string[], callerHostId: string | null, callerThreadId: string | null = null): Promise<string | null> {
     const json = args.includes("--json");
     const dryRun = args.includes("--dry-run");
     const positional = args.filter((arg, index) => !arg.startsWith("--") && !args[index - 1]?.startsWith("--host") && !args[index - 1]?.startsWith("--to"));
@@ -893,12 +1155,98 @@ export function createSkillsHubService(
           ...result.errors.map((error) => `  ✗ ${error}`),
         ].join("\n");
       }
+      case "skills-suggest": {
+        const config = await readConfig();
+        suggestToolsOn = config.skillsSuggestTools === true;
+        // The handler runs in the BB server, not in the calling CLI process, so
+        // there is no caller stdin here: hooks pass every field as an argument.
+        const message = flag(args, "--message") ?? "";
+        if (message.trim() === "") {
+          return t("Укажите сообщение: bb tools skills-suggest --message <текст> [--json]");
+        }
+        const prevUser = flag(args, "--prev-user") ?? "";
+        const prevAssistant = flag(args, "--prev-assistant") ?? "";
+        const threadId = flag(args, "--thread") ?? callerThreadId;
+        const key = config.jevApiKey.trim();
+        if (key === "") {
+          if (json) return JSON.stringify({ skill: null, reason: "error", error: "no Jev key" }, null, 2);
+          return t("Ключ TypeSafe (Jev) не задан");
+        }
+        const log = await readSuggestLog();
+        const suggested = threadId === null ? [] : alreadySuggested(log, threadId, Date.now());
+        const result = await suggest(createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" }), await loadRoster(), {
+          message,
+          context: { prevUser: prevUser || undefined, prevAssistant: prevAssistant || undefined },
+        }, {
+          thresholds: {
+            gate: parseThreshold(config.skillsSuggestGate, DEFAULT_THRESHOLDS.gate),
+            fits: parseThreshold(config.skillsSuggestFits, DEFAULT_THRESHOLDS.fits),
+          },
+          exclude: parseExclude(config.skillsSuggestExclude || DEFAULT_EXCLUDE.join(", ")),
+          alreadySuggested: suggested,
+        });
+        await pushLog({
+          at: Date.now(),
+          threadId,
+          message: message.slice(0, 200),
+          skill: result.skill,
+          reason: result.reason ?? "ok",
+          gate: result.gate,
+          fitsMax: Object.values(result.fits).reduce((max, value) => Math.max(max, value), 0),
+          shortlist: result.shortlist,
+          tokens: result.tokens,
+          ms: result.ms,
+          mode: "cli",
+        });
+        if (json) return JSON.stringify(result, null, 2);
+        return relevanceBlock(result.skill);
+      }
+      case "skills-cards": {
+        if (args.includes("--refresh")) {
+          if (args.includes("--wait")) await cardWriter.run();
+          else kickCards();
+        }
+        const jobs = await loadJobs();
+        const stats = cardStats(
+          jobs.map((job) => job.name),
+          new Map(jobs.map((job) => [job.name, job.hash])),
+          await readCards(),
+        );
+        if (json) return JSON.stringify(stats, null, 2);
+        const started = args.includes("--refresh") && !args.includes("--wait") ? t("Обновление карточек запущено в фоне.") + "\n" : "";
+        return (
+          started +
+          tp(
+            "Навыки: {0}. Карточек: свежих {1}, устаревших {2}, ручных {3}, нет {4}",
+            stats.total,
+            stats.fresh,
+            stats.stale,
+            stats.manual,
+            stats.missing,
+          )
+        );
+      }
+      case "skills-suggest-log": {
+        const rawLimit = flag(args, "--limit");
+        const parsed = rawLimit === null ? 50 : Number(rawLimit);
+        const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(500, Math.floor(parsed)) : 50;
+        const entries = (await readSuggestLog()).slice(-limit);
+        if (json) return JSON.stringify(entries, null, 2);
+        if (entries.length === 0) return t("Журнал подбора пуст");
+        return entries
+          .map((entry) => {
+            const when = new Date(entry.at).toISOString();
+            const skill = entry.skill ?? "—";
+            return `${when}  ${entry.reason}  ${skill}  gate ${entry.gate.toFixed(2)}  ${entry.message}`;
+          })
+          .join("\n");
+      }
       default:
         return null;
     }
   }
 
-  return { handlers, cli, configureThread, kick, refreshMachines, view };
+  return { handlers, cli, configureThread, publicTools, kick, kickCards, refreshMachines, view };
 }
 
 export const SKILLS_CLI_USAGE = [
@@ -908,6 +1256,9 @@ export const SKILLS_CLI_USAGE = [
   "  bb tools skills-pull <навык> [--to <папка>] [--host <машина>]  Взять навык с хаба в работу",
   "  bb tools skills-move <навык> \"Раздел/Подраздел\"  Перенести навык вручную",
   "  bb tools skills-classify [--wait]           Разложить навыки без категории",
+  "  bb tools skills-suggest --message <текст> [--prev-user <текст>] [--prev-assistant <текст>] [--thread <id>] [--json]  Какой навык подходит к сообщению",
+  "  bb tools skills-cards [--refresh] [--wait] [--json]  Карточки маршрутизации навыков",
+  "  bb tools skills-suggest-log [--limit N] [--json]  Журнал подбора навыков",
   "  bb tools skills-remove <навык>              Убрать навык с хаба в архив",
   "  bb tools skills-machines                    Копии навыков на машинах",
   "  bb tools skills-import --host <машина> [--dry-run]  Перенести на хаб навыки, которых там нет",
