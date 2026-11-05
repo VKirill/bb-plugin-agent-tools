@@ -46,6 +46,35 @@ test("count and clean CLI skill folders, keeping what the CLI owns", async () =>
   assert.equal(existsSync(path.join(home, ".agents/skills-on-hub")), true);
 });
 
+test("a protected folder (the hub canon) is never counted, listed or moved", async () => {
+  const home = fakeHome();
+  const canon = path.join(home, ".bb/skills");
+  const protect = [canon];
+  assert.deepEqual(
+    (await countSkillHomes(home, protect)).map((item) => item.id),
+    ["agents", "claude"],
+  );
+  const listed = await listMachineSkills(home, protect);
+  assert.equal(listed.some((item) => item.name === "edo"), false);
+  assert.equal(listed.some((item) => item.name === "seo"), true);
+  const done = await cleanupSkillHomes(false, home, protect);
+  assert.deepEqual(done.errors, []);
+  assert.equal(existsSync(path.join(canon, "edo/SKILL.md")), true, "the canon stays in place");
+  assert.equal(existsSync(path.join(home, ".agents/skills/ru-text")), false, "unprotected copies move");
+  assert.equal(existsSync(path.join(done.backup as string, "agents/ru-text/SKILL.md")), true);
+  assert.equal(existsSync(path.join(home, ".agents/skills-on-hub")), true);
+});
+
+test("a protect path through a symlink also protects the canon", async () => {
+  const home = fakeHome();
+  const link = path.join(home, "canon-link");
+  symlinkSync(path.join(home, ".bb/skills"), link, "dir");
+  const done = await cleanupSkillHomes(false, home, [link]);
+  assert.deepEqual(done.errors, []);
+  assert.equal(existsSync(path.join(home, ".bb/skills/edo/SKILL.md")), true);
+  assert.equal(existsSync(path.join(home, ".agents/skills/seo")), false);
+});
+
 test("pack a draft and unpack it into drafts, keeping the previous copy", async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "host-skills-pack-"));
   skill(path.join(home, "work"), "my-skill");

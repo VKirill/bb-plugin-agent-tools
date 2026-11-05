@@ -528,10 +528,10 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Раз в час новые навыки без категории уходят классификатору. Выключено — только по кнопке «Разложить новые»."),
       default: true,
     },
-    skillsOfferCleanup: {
+    skillsHubOnly: {
       type: "boolean",
-      label: t("Навыки: предлагать убрать копии с машин"),
-      description: t("Выключено — плагин не трогает папки навыков на машинах: только копирует недостающие навыки на хаб. Включите, чтобы на странице «Навыки» появилась кнопка «Очистить…» для дублей."),
+      label: t("Навыки: только на хабе (экспериментально)"),
+      description: t("Плагин сам держит папки навыков CLI на всех машинах пустыми: раз в час переносит на хаб навыки, которых там нет, и убирает копии в архив на той же машине. Навыки приходят в сессии только с хаба BB. Выключено — машины не трогаются."),
       default: false,
     },
     skillsClassifierProjectId: {
@@ -598,7 +598,7 @@ export default async function plugin(bb: BbPluginApi) {
       classifierModel: config.skillsClassifierModel.trim(),
       classifierProjectId: config.skillsClassifierProjectId,
       classifierAuto: config.skillsClassifierAuto,
-      offerCleanup: config.skillsOfferCleanup,
+      hubOnly: config.skillsHubOnly,
       jevApiKey: config.jevApiKey,
       jevModel: config.jevModel,
       skillsSuggestTools: config.skillsSuggestTools,
@@ -2359,6 +2359,10 @@ export default async function plugin(bb: BbPluginApi) {
     }
     // Skills live on the hub now: count leftovers on the machines and place new skills.
     await skillsHub.refreshMachines().catch((cause: unknown) => bb.log.warn(`skills machines: ${String(cause)}`));
+    // Experimental hub-only mode: publish what the hub lacks, then archive the copies.
+    if ((await readConfig()).skillsHubOnly) {
+      await skillsHub.enforceHubOnly().catch((cause: unknown) => bb.log.warn(`skills hub-only: ${String(cause)}`));
+    }
     if ((await readConfig()).skillsClassifierAuto) skillsHub.kick();
     await publish();
   });
@@ -2538,6 +2542,11 @@ export default async function plugin(bb: BbPluginApi) {
         name: "skills-cleanup",
         summary: t("Убрать копии навыков с машины в архив"),
         usage: t("bb tools skills-cleanup --host <машина> [--dry-run]"),
+      },
+      {
+        name: "skills-hub-only",
+        summary: t("Режим «только на хабе»: отчёт или прогон"),
+        usage: t("bb tools skills-hub-only [--run] [--json]"),
       },
       {
         name: "plugins",

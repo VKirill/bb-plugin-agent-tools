@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SKILL_TAR_EXCLUDES } from "./skill-tree.ts";
@@ -104,11 +104,53 @@ async function entriesOf(dir: string, keep: readonly string[]): Promise<string[]
   );
 }
 
+/**
+ * A folder the caller protects (the hub canon on the hub host). A plain string
+ * protects by path alone; `{ path, token }` protects only when the folder
+ * carries the `.agent-tools-canon` marker with that token — so a machine that
+ * merely shares the hub's path layout still gets cleaned.
+ */
+export type ProtectEntry = string | { path: string; token?: string | null };
+
+/** Marker file inside a protected folder proving it is the canon, not a lookalike. */
+export const CANON_MARKER = ".agent-tools-canon";
+
+type ProtectRoot = { paths: string[]; token: string | null };
+
+async function protectedRoots(protect: readonly ProtectEntry[]): Promise<ProtectRoot[]> {
+  const roots: ProtectRoot[] = [];
+  for (const entry of protect) {
+    const raw = typeof entry === "string" ? entry : entry.path;
+    const token = typeof entry === "string" ? null : (entry.token ?? null);
+    const resolved = path.resolve(raw);
+    roots.push({ paths: [resolved, await realpath(resolved).catch(() => resolved)], token });
+  }
+  return roots;
+}
+
+async function isProtected(dir: string, roots: readonly ProtectRoot[]): Promise<boolean> {
+  if (roots.length === 0) return false;
+  const candidates = [path.resolve(dir)];
+  const real = await realpath(dir).catch(() => null);
+  if (real !== null) candidates.push(real);
+  for (const root of roots) {
+    if (!candidates.some((candidate) => root.paths.some((p) => candidate === p || candidate.startsWith(p + path.sep)))) {
+      continue;
+    }
+    if (root.token === null) return true;
+    const marker = await readFile(path.join(dir, CANON_MARKER), "utf8").catch(() => null);
+    if (marker !== null && marker.trim() === root.token) return true;
+  }
+  return false;
+}
+
 /** How many skills (folders and links) each CLI folder still holds. */
-export async function countSkillHomes(home = os.homedir()): Promise<HomeCount[]> {
+export async function countSkillHomes(home = os.homedir(), protect: ProtectEntry[] = []): Promise<HomeCount[]> {
+  const roots = await protectedRoots(protect);
   const result: HomeCount[] = [];
   for (const location of MACHINE_SKILL_HOMES) {
     const dir = path.join(home, location.path);
+    if (await isProtected(dir, roots)) continue;
     let skills = 0;
     let links = 0;
     for (const name of await entriesOf(dir, location.keep)) {
@@ -141,13 +183,15 @@ const OWNED_ROOTS = [
 /** Skills BB writes on every machine by itself. */
 const BB_OWN_SKILLS = new Set(["bb-cli"]);
 
-export async function listMachineSkills(home = os.homedir()): Promise<FoundSkill[]> {
+export async function listMachineSkills(home = os.homedir(), protect: ProtectEntry[] = []): Promise<FoundSkill[]> {
+  const roots = await protectedRoots(protect);
   const byName = new Map<string, FoundSkill>();
   const owned = await Promise.all(
     OWNED_ROOTS.map(async (rel) => (await realpath(path.join(home, rel)).catch(() => path.join(home, rel))) + path.sep),
   );
   for (const location of MACHINE_SKILL_HOMES) {
     const dir = path.join(home, location.path);
+    if (await isProtected(dir, roots)) continue;
     for (const name of await entriesOf(dir, location.keep)) {
       if (BB_OWN_SKILLS.has(name)) continue;
       const real = await realpath(path.join(dir, name)).catch(() => null);
@@ -169,12 +213,14 @@ export type CleanupResult = { backup: string | null; moved: Array<{ id: string; 
  * Folders the CLI owns (`~/.claude/skills/synced`, `~/.codex/skills/.system`)
  * and hidden entries stay. Nothing is deleted.
  */
-export async function cleanupSkillHomes(dryRun: boolean, home = os.homedir()): Promise<CleanupResult> {
+export async function cleanupSkillHomes(dryRun: boolean, home = os.homedir(), protect: ProtectEntry[] = []): Promise<CleanupResult> {
+  const roots = await protectedRoots(protect);
   const backup = path.join(home, ".agents", "skills-backups", `cleanup-${stamp()}`);
   const moved: CleanupResult["moved"] = [];
   const errors: string[] = [];
   for (const location of MACHINE_SKILL_HOMES) {
     const dir = path.join(home, location.path);
+    if (await isProtected(dir, roots)) continue;
     const names = await entriesOf(dir, location.keep);
     if (names.length === 0) continue;
     moved.push({ id: location.id, count: names.length });
