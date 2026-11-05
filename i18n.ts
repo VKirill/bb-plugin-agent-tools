@@ -55,6 +55,80 @@ export function languageFromLocale(locale: string): Lang {
   return locale.toLowerCase().startsWith("ru") ? "ru" : "en";
 }
 
+// ---------------------------------------------------------- UI language
+/** Stored page-language choice: follow BB, or pin Russian / English. */
+export type UiLangChoice = "auto" | "ru" | "en";
+
+export function isUiLangChoice(value: unknown): value is UiLangChoice {
+  return value === "auto" || value === "ru" || value === "en";
+}
+
+/** What the resolver looks at: BB's lang, Pokecut's resolved lang, Russifier state, chrome labels. */
+export type UiLangEnv = {
+  htmlLang: string;
+  pkLang: string | null;
+  russifierOff: boolean;
+  chromeLabels: string[];
+};
+
+const CYRILLIC = /[А-Яа-яЁё]/u;
+
+/**
+ * Pick the page language. An explicit choice always wins; `auto` trusts
+ * `<html lang>`, then Pokecut's `data-pk-lang` (it honours the user's own
+ * override), then Cyrillic chrome labels — the Russifier translates BB's UI
+ * but leaves `<html lang>` as `en`.
+ */
+export function resolveUiLang(choice: UiLangChoice, env: UiLangEnv): Lang {
+  if (choice === "ru" || choice === "en") return choice;
+  if (env.htmlLang.toLowerCase().startsWith("ru")) return "ru";
+  if (env.pkLang === "ru" || env.pkLang === "en") return env.pkLang;
+  if (!env.russifierOff && env.chromeLabels.slice(0, 12).some((label) => CYRILLIC.test(label))) return "ru";
+  return "en";
+}
+
+/** Read the live page environment; every probe is guarded — never throws. */
+export function readUiLangEnv(): UiLangEnv {
+  const env: UiLangEnv = { htmlLang: "", pkLang: null, russifierOff: false, chromeLabels: [] };
+  if (typeof document === "undefined") return env;
+  try {
+    env.htmlLang = document.documentElement?.lang ?? "";
+    env.pkLang = document.documentElement?.getAttribute("data-pk-lang") ?? null;
+  } catch {
+    // attributes unreachable — keep empty values
+  }
+  try {
+    env.russifierOff = globalThis.localStorage?.getItem("bb-plugin-ru:enabled") === "off";
+  } catch {
+    env.russifierOff = false;
+  }
+  try {
+    const nodes = document.querySelectorAll(
+      '[data-sidebar="sidebar"] button[aria-label], header button[aria-label]',
+    );
+    env.chromeLabels = Array.from(nodes).map((node) => node.getAttribute("aria-label") ?? "");
+  } catch {
+    env.chromeLabels = [];
+  }
+  return env;
+}
+
+let uiChoice: UiLangChoice = "auto";
+
+/** The stored choice from the last overview/settings payload; `auto` until known. */
+export function setUiLangChoice(choice: UiLangChoice): void {
+  uiChoice = choice;
+}
+
+export function getUiLangChoice(): UiLangChoice {
+  return uiChoice;
+}
+
+/** Re-resolve the page language from the stored choice and the live page. */
+export function applyUiLang(): void {
+  setLang(resolveUiLang(uiChoice, readUiLangEnv()));
+}
+
 /** Translate host diagnostics at display time, retaining opaque parser/path details. */
 export function translateDiagnostic(message: string): string {
   const prefixes = [

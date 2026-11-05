@@ -38,7 +38,7 @@ import {
 } from "./hub-skills.ts";
 import { skillBodyExcerpt } from "./skill-meta.ts";
 import { bbServerSkillsDir } from "./skills-server.ts";
-import { getLang, t, tp } from "./i18n.ts";
+import { getLang, isUiLangChoice, t, tp } from "./i18n.ts";
 import {
   CARD_WRITER_ROLE,
   EMPTY_CARD_WRITER_STATE,
@@ -152,6 +152,8 @@ export const skillsHubSchema = z.object({
 });
 
 const skillsSettingsSchema = z.object({
+  /** Page language choice stored by the server; auto follows BB's own locale. */
+  uiLang: z.enum(["auto", "ru", "en"]),
   provider: z.string(),
   model: z.string(),
   auto: z.boolean(),
@@ -1188,7 +1190,9 @@ export function createSkillsHubService(
               .filter((item) => item.skipped !== null)
               .map((item) => ({ hostName: item.hostName, reason: item.skipped as string })),
           };
+    const storedUiLang = await bb.storage.kv.get<string>("uiLang");
     return {
+      uiLang: isUiLangChoice(storedUiLang) ? storedUiLang : "auto",
       provider: config.classifierProvider,
       model: config.classifierModel,
       auto: config.classifierAuto,
