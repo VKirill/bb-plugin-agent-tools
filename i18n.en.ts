@@ -132,6 +132,10 @@ export const EN: Record<string, string> = {
   "Загрузка данных OpenCode…": "Loading OpenCode data…",
   "Читаем архив на машинах…": "Reading the archive on the machines…",
   "Язык интерфейса": "Interface language",
+  "На каком языке показывать страницы плагина.": "Which language the plugin pages are shown in.",
+  "Язык": "Language",
+  "«Как в BB» учитывает Русификатор и тему Pokecut.": "\"Like BB\" takes the Russifier and the Pokecut theme into account.",
+  "Как в BB": "Like BB",
   "обход": "sweep",
 
   // --- tables and columns -------------------------------------------------

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
-import { getLang, t, tp } from "./i18n";
+import { getLang, t, tp, applyUiLang, setUiLangChoice, type UiLangChoice } from "./i18n";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/ui/icon";
 
@@ -20,6 +20,7 @@ type Settings = {
   auto: boolean;
   projectId: string;
   hubOnly: boolean;
+  uiLang: UiLangChoice;
   hubOnlyLast: HubOnlyLast | null;
   providers: Array<{ id: string; label: string; available: boolean }>;
   projects: Array<{ id: string; name: string }>;
@@ -90,6 +91,26 @@ export function SettingsPage() {
     [rpc],
   );
 
+  const saveUiLang = useCallback(
+    async (choice: UiLangChoice) => {
+      setBusy(true);
+      setError(null);
+      setSaved(false);
+      try {
+        const result = await rpc.call("ui_language_set", { choice });
+        setUiLangChoice(result.choice);
+        applyUiLang();
+        setSettings((previous) => (previous === null ? previous : { ...previous, uiLang: result.choice }));
+        setSaved(true);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [rpc],
+  );
+
   if (settings === null) {
     return <div className="at-card mt-4 p-6 text-sm text-muted-foreground">{error ?? t("Загрузка…")}</div>;
   }
@@ -105,6 +126,39 @@ export function SettingsPage() {
           <span className="min-w-0 flex-1 break-words">{error}</span>
         </div>
       )}
+
+      <section className="at-panel">
+        <div className="at-panel-head">
+          <h2 className="text-sm font-medium">{t("Язык интерфейса")}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("На каком языке показывать страницы плагина.")}
+          </p>
+        </div>
+        <div className="at-panel-body p-4">
+          <Field label={t("Язык")} hint={t("«Как в BB» учитывает Русификатор и тему Pokecut.")}>
+            <div role="group" aria-label={t("Язык интерфейса")} className="at-seg">
+              {(
+                [
+                  ["auto", t("Как в BB")],
+                  ["ru", "Русский"],
+                  ["en", "English"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={settings.uiLang === value}
+                  disabled={busy}
+                  className="at-seg-item h-7 rounded-[6px] px-3 text-xs"
+                  onClick={() => void saveUiLang(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </div>
+      </section>
 
       <section className="at-panel">
         <div className="at-panel-head">

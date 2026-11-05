@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "task_id": "ui-language-switch",
+  "task_sha256": "be8bb61ece95b0e2a6405ab2f4231d8e7f7f832de81b46c2e63c6eabe26c4d1a",
+  "attempt": 2,
+  "provider_exit": 0,
+  "report": "complete",
+  "report_sha256": "e4644f67c888109f989e4da0ac1616ec2b46a637dc0571129c3ed97aeb90c762",
+  "owns_check": "passed",
+  "verification": "passed",
+  "review": "passed",
+  "accepted": true,
+  "accepted_at": "2026-11-05T23:33:55.714Z",
+  "model": "swe-2-flash-medium"
+}

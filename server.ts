@@ -52,6 +52,7 @@ import {
   tp,
   plural,
   isLang,
+  isUiLangChoice,
   describeRollout,
   countSkillsNotOnAllMachines,
   summarizeCanonSync,
@@ -63,6 +64,7 @@ import {
   callHostTimed,
   translateDiagnostic,
   type Lang,
+  type UiLangChoice,
 } from "./i18n";
 
 import { EN } from "./i18n.en";
@@ -148,6 +150,8 @@ const overviewSchema = z.object({
   skillsSyncRemoteConfigured: z.boolean(),
   /** Язык интерфейса плагина: им же отвечает CLI. */
   lang: z.enum(["ru", "en"]),
+  /** Язык страниц плагина: auto следует за BB (Русификатор, Pokecut), ru/en — явно. */
+  uiLang: z.enum(["auto", "ru", "en"]),
   lastScanAt: z.number().nullable(),
   lastSyncAt: z.number().nullable(),
   skills: z.array(
@@ -340,6 +344,11 @@ export const rpcContract = defineRpcContract({
   set_language: {
     input: z.object({ lang: z.enum(["ru", "en"]) }),
     output: overviewSchema,
+  },
+  /** Язык страниц плагина (auto / ru / en); отдельно от языка CLI. */
+  ui_language_set: {
+    input: z.object({ choice: z.enum(["auto", "ru", "en"]) }),
+    output: z.object({ choice: z.enum(["auto", "ru", "en"]) }),
   },
   skills_fanout: {
     input: z.object({ hostId: z.string().nullable(), dryRun: z.boolean().default(false) }),
@@ -587,6 +596,11 @@ export default async function plugin(bb: BbPluginApi) {
   // Настройки читаем в момент использования, а не один раз при старте: иначе
   //новый ключ, вписанный в интерфейсе, начинал работать только после перезагрузки.
   const readConfig = () => settings.get();
+  /** Stored page-language choice; missing or invalid KV reads as auto. */
+  const readUiLangChoice = async (): Promise<UiLangChoice> => {
+    const stored = await bb.storage.kv.get<string>("uiLang");
+    return isUiLangChoice(stored) ? stored : "auto";
+  };
   // The skills canon moved to the BB hub (0.2.9). The machine-canon code below
   // stays for old CLI calls but never runs on its own and never writes.
   const LEGACY_SKILLS = { fanOutAuto: false, pluginNames: true, syncRemote: "" } as const;
@@ -1170,6 +1184,7 @@ export default async function plugin(bb: BbPluginApi) {
       skillsFanOutAuto: LEGACY_SKILLS.fanOutAuto,
       skillsSyncRemoteConfigured: LEGACY_SKILLS.syncRemote !== "",
       lang: currentLang,
+      uiLang: await readUiLangChoice(),
       lastScanAt: (await bb.storage.kv.get<number>("lastScanAt")) ?? null,
       lastSyncAt: (await bb.storage.kv.get<number>("lastSyncAt")) ?? null,
       skills: skillsViews,
@@ -2250,6 +2265,12 @@ export default async function plugin(bb: BbPluginApi) {
       setLang(next);
       await bb.storage.kv.set("lang", next);
       return publish();
+    },
+    ui_language_set: async ({ choice }) => {
+      await bb.storage.kv.set("uiLang", choice);
+      // Pages pick the new language up on the next overview refresh.
+      await publish();
+      return { choice };
     },
     skills_fanout: async ({ hostId, dryRun }) => ({
       ...(await runSkillsRollout(hostId, dryRun)),

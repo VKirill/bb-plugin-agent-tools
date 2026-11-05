@@ -30,7 +30,7 @@ import {
   type SkillRow as SkillRowT,
 } from "./skills";
 import { CANONICAL_OPENCODE_PROVIDERS, STALE_OPENCODE_PROVIDERS } from "./opencode";
-import { t, tp, plural, getLang, setLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, languageFromLocale, translateDiagnostic } from "./i18n";
+import { t, tp, plural, getLang, setDictionary, describeRollout, countSkillsNotOnAllMachines, applyUiLang, setUiLangChoice, translateDiagnostic } from "./i18n";
 import { EN } from "./i18n.en";
 import { SkillsPage } from "./skills-page";
 import { SettingsPage } from "./settings-page";
@@ -115,8 +115,9 @@ function useOverview() {
   }, [setError]);
   const refetch = useCallback(() => {
     rpc.call("overview", null).then((result) => {
-      // Apply the BB document locale before rendering child labels.
-      setLang(languageFromLocale(document.documentElement.lang));
+      // Apply the stored page language before rendering child labels.
+      setUiLangChoice(result.uiLang);
+      applyUiLang();
       setData(result);
       // Ошибку последнего действия не стираем: после раскатки сервер делает
       // scan + publish → mcp-changed → refetch, и текст пропадал за долю секунды.
@@ -125,13 +126,23 @@ function useOverview() {
   useEffect(refetch, [refetch]);
   useEffect(() => {
     const updateLanguage = () => {
-      setLang(languageFromLocale(document.documentElement.lang));
+      applyUiLang();
       setDataState((previous) => previous === null ? null : { ...previous });
     };
     updateLanguage();
     const observer = new MutationObserver(updateLanguage);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
-    return () => observer.disconnect();
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang", "data-pk-lang"] });
+    // The Russifier and Pokecut rewrite chrome labels after load: watch the
+    // sidebar's aria-labels and re-check a few times while they settle.
+    const sidebar = document.querySelector('[data-sidebar="sidebar"]');
+    if (sidebar !== null) {
+      observer.observe(sidebar, { attributes: true, attributeFilter: ["aria-label"], subtree: true });
+    }
+    const timers = [500, 2000, 5000].map((ms) => setTimeout(updateLanguage, ms));
+    return () => {
+      observer.disconnect();
+      timers.forEach((timer) => clearTimeout(timer));
+    };
   }, []);
   useRealtime("mcp-changed", refetch);
 
@@ -142,7 +153,8 @@ function useOverview() {
       setError(null);
       try {
         const next = await run();
-        setLang(languageFromLocale(document.documentElement.lang));
+        setUiLangChoice(next.uiLang);
+        applyUiLang();
         setData(next);
       } catch (cause) {
         report(cause);
