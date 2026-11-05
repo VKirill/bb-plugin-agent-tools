@@ -1213,9 +1213,12 @@ export default experimental_defineHostEntry({
         return { ok: result.ok, path: result.path, error: result.error };
       },
 
-      skill_homes_count: async () => ({ homes: await countSkillHomes(), found: await listMachineSkills() }),
+      skill_homes_count: async ({ protect }) => ({
+        homes: await countSkillHomes(undefined, protect ?? []),
+        found: await listMachineSkills(undefined, protect ?? []),
+      }),
 
-      skill_homes_cleanup: async ({ dryRun }) => cleanupSkillHomes(dryRun),
+      skill_homes_cleanup: async ({ dryRun, protect }) => cleanupSkillHomes(dryRun, undefined, protect ?? []),
 
       opencode_scan: async () => scanOpenCode(),
 

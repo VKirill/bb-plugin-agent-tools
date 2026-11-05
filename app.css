@@ -211,6 +211,9 @@
   .at-pill-neutral { background-color: var(--at-card); box-shadow: inset 0 0 0 1px var(--at-outline); color: var(--foreground); }
   .at-pill-muted { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); color: var(--foreground); }
 
+  /* Small badge next to a field label (e.g. «Эксперимент»). */
+  .at-label-badge { margin-left: 8px; font-size: 11px; padding: 2px 8px; }
+
   .at-text-success { color: var(--at-success-text); }
   .at-text-warning { color: var(--at-warning-text); }
   .at-text-danger { color: var(--at-danger-text); }

@@ -1,4 +1,6 @@
-import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import {
@@ -36,7 +38,7 @@ import {
 } from "./hub-skills.ts";
 import { skillBodyExcerpt } from "./skill-meta.ts";
 import { bbServerSkillsDir } from "./skills-server.ts";
-import { t, tp } from "./i18n.ts";
+import { getLang, t, tp } from "./i18n.ts";
 import {
   CARD_WRITER_ROLE,
   EMPTY_CARD_WRITER_STATE,
@@ -49,6 +51,8 @@ import {
   type CardJob,
 } from "./skill-suggest/card-writer.ts";
 import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
+import { enforceHubOnly, type HubOnlyReport } from "./hub-only.ts";
+import { CANON_MARKER, type ProtectEntry } from "./host-skills.ts";
 import { createHttpJevClient } from "./skill-suggest/jev.ts";
 import { SkillDispatchInjector, type DispatchContext, type QueuedRow } from "./skill-suggest/dispatch.ts";
 import { ThreadSkillMemory, alreadySuggested, appendLog, type SuggestLogEntry, type SuggestLogMode } from "./skill-suggest/log.ts";
@@ -152,7 +156,16 @@ const skillsSettingsSchema = z.object({
   model: z.string(),
   auto: z.boolean(),
   projectId: z.string(),
-  offerCleanup: z.boolean(),
+  hubOnly: z.boolean(),
+  hubOnlyLast: z
+    .object({
+      at: z.number(),
+      imported: z.number(),
+      moved: z.number(),
+      rejected: z.number(),
+      skipped: z.array(z.object({ hostName: z.string(), reason: z.string() })).max(64),
+    })
+    .nullable(),
   providers: z.array(z.object({ id: z.string(), label: z.string(), available: z.boolean() })),
   projects: z.array(z.object({ id: z.string(), name: z.string() })),
 });
@@ -219,7 +232,7 @@ export const skillsRpcContract = {
       model: z.string().max(200).optional(),
       auto: z.boolean().optional(),
       projectId: z.string().max(120).optional(),
-      offerCleanup: z.boolean().optional(),
+      hubOnly: z.boolean().optional(),
     }),
     output: skillsSettingsSchema,
   },
@@ -266,8 +279,8 @@ export type SkillsHubConfig = {
   classifierModel: string;
   classifierProjectId: string;
   classifierAuto: boolean;
-  /** Off by default: the plugin never offers to touch skill folders on machines. */
-  offerCleanup: boolean;
+  /** Experimental: keep CLI skill folders on every machine empty, skills come only from the hub. */
+  hubOnly: boolean;
   jevApiKey: string;
   jevModel: string;
   skillsSuggestTools: boolean;
@@ -283,7 +296,7 @@ export type SkillsHubConfigPatch = Partial<{
   skillsClassifierModel: string;
   skillsClassifierProjectId: string;
   skillsClassifierAuto: boolean;
-  skillsOfferCleanup: boolean;
+  skillsHubOnly: boolean;
 }>;
 
 const CACHE_MS = 15_000;
@@ -293,6 +306,8 @@ const KV = {
   review: "skillReview",
   classifier: "skillClassifier",
   machines: "skillMachines",
+  hubOnlyLast: "skillHubOnlyLast",
+  canonToken: "skillCanonToken",
   cards: "skillCards",
   cardWriter: "skillCardWriter",
   suggestLog: "skillSuggestLog",
@@ -894,37 +909,115 @@ export function createSkillsHubService(
   }
 
   // ------------------------------------------------------------- machines
+  /**
+   * The hub canon root as the server sees it, with the marker token that
+   * proves a folder really is the canon. On the hub host itself
+   * `~/.bb/skills` IS the canon, so every count/cleanup call protects it;
+   * a machine that merely shares the path layout has no marker and is
+   * still cleaned.
+   */
+  async function canonToken(): Promise<string> {
+    const stored = await bb.storage.kv.get<string>(KV.canonToken);
+    if (typeof stored === "string" && stored.length > 0) return stored;
+    const token = randomUUID();
+    await bb.storage.kv.set(KV.canonToken, token);
+    return token;
+  }
+
+  async function protectPaths(): Promise<ProtectEntry[]> {
+    const token = await canonToken();
+    const real = await realpath(root).catch(() => null);
+    // Stamp the canon so the hub host can tell it apart from lookalike folders.
+    if (real !== null) {
+      const marker = path.join(real, CANON_MARKER);
+      const current = await readFile(marker, "utf8").catch(() => null);
+      if (current?.trim() !== token) {
+        await writeFile(marker, `${token}\n`).catch(() => undefined);
+      }
+    }
+    return [{ path: root, token }];
+  }
+
+  /** One machine's skill homes plus the skills it holds that the hub lacks. */
+  async function scanMachineSkills(hostId: string): Promise<{
+    homes: MachineHomes["homes"];
+    notOnHub: MachineHomes["notOnHub"];
+    error: string | null;
+  }> {
+    try {
+      const protect = await protectPaths();
+      const homes = (await host.call("skill_homes_count", { protect }, { hostId, timeoutMs: 60_000 })) as {
+        homes: MachineHomes["homes"];
+        found?: MachineHomes["notOnHub"];
+      };
+      const onHub = new Set((await hubSkills()).map((skill) => skill.name));
+      return {
+        homes: homes.homes,
+        notOnHub: (homes.found ?? []).filter((skill) => !onHub.has(skill.name)),
+        error: null,
+      };
+    } catch (cause) {
+      return { homes: [], notOnHub: [], error: cause instanceof Error ? cause.message.slice(0, 200) : String(cause) };
+    }
+  }
+
   async function refreshMachines(): Promise<MachineHomes[]> {
     const hosts = (await bb.sdk.hosts.list()) as unknown as Array<{ id: string; name: string; status?: string }>;
     const result: MachineHomes[] = [];
     for (const item of hosts) {
-      try {
-        const homes = (await host.call("skill_homes_count", {}, { hostId: item.id, timeoutMs: 60_000 })) as {
-          homes: MachineHomes["homes"];
-          found?: MachineHomes["notOnHub"];
-        };
-        const onHub = new Set((await hubSkills()).map((skill) => skill.name));
-        result.push({
-          hostId: item.id,
-          hostName: item.name,
-          homes: homes.homes,
-          notOnHub: (homes.found ?? []).filter((skill) => !onHub.has(skill.name)),
-          error: null,
-          at: Date.now(),
-        });
-      } catch (cause) {
-        result.push({
-          hostId: item.id,
-          hostName: item.name,
-          homes: [],
-          notOnHub: [],
-          error: cause instanceof Error ? cause.message.slice(0, 200) : String(cause),
-          at: Date.now(),
-        });
-      }
+      const scan = await scanMachineSkills(item.id);
+      result.push({
+        hostId: item.id,
+        hostName: item.name,
+        homes: scan.homes,
+        notOnHub: scan.notOnHub,
+        error: scan.error,
+        at: Date.now(),
+      });
     }
     await bb.storage.kv.set(KV.machines, result);
     return result;
+  }
+
+  // ------------------------------------------------- hub-only enforcement
+  let hubOnlyRun: Promise<HubOnlyReport> | null = null;
+
+  /** One enforcement pass over every connected machine; a second call joins the running one. */
+  function enforceHubOnlyMode(): Promise<HubOnlyReport> {
+    hubOnlyRun ??= runHubOnly().finally(() => {
+      hubOnlyRun = null;
+    });
+    return hubOnlyRun;
+  }
+
+  async function runHubOnly(): Promise<HubOnlyReport> {
+    const protect = await protectPaths();
+    const connected = ((await bb.sdk.hosts.list()) as unknown as Array<{ id: string; name: string; status?: string }>).filter(
+      (item) => item.status === undefined || item.status === "connected",
+    );
+    const names = new Map(connected.map((item) => [item.id, item.name]));
+    const report = await enforceHubOnly({
+      hosts: async () => connected.map((item) => ({ hostId: item.id, hostName: item.name })),
+      refresh: async (hostId) => {
+        const scan = await scanMachineSkills(hostId);
+        return { notOnHub: scan.notOnHub, homes: scan.homes, error: scan.error };
+      },
+      importSkill: async (hostId, skill) => {
+        const result = await publishFromHost(hostId, skill.path, false, `hub-only from ${names.get(hostId) ?? hostId}`);
+        return { ok: result.ok, error: result.error, problems: result.problems };
+      },
+      cleanup: async (hostId) =>
+        (await host.call("skill_homes_cleanup", { dryRun: false, protect }, { hostId, timeoutMs: 180_000 })) as {
+          backup: string | null;
+          moved: Array<{ id: string; count: number }>;
+          errors: string[];
+        },
+      log: (message) => bb.log.info(message),
+    });
+    await bb.storage.kv.set(KV.hubOnlyLast, { at: Date.now(), report });
+    invalidate();
+    await refreshMachines().catch((cause: unknown) => bb.log.warn(`skills hub-only refresh: ${String(cause)}`));
+    return report;
   }
 
   // ------------------------------------------------------------- views
@@ -964,7 +1057,7 @@ export function createSkillsHubService(
       }),
       tree: store.tree,
       classifier: { ...state, running: state.running || classifier.busy, model: config.classifierModel || `${config.classifierProvider} (default)` },
-      offerCleanup: config.offerCleanup,
+      offerCleanup: config.hubOnly,
       machines: (machines ?? []).map((machine) => ({
         ...machine,
         notOnHub: (machine.notOnHub ?? []).filter((skill) => !skills.some((item) => item.name === skill.name)),
@@ -1082,12 +1175,26 @@ export function createSkillsHubService(
       id: item.id,
       name: item.kind === "personal" ? `${item.name ?? item.id} (personal)` : (item.name ?? item.id),
     }));
+    const last = await bb.storage.kv.get<{ at: number; report: HubOnlyReport }>(KV.hubOnlyLast);
+    const hubOnlyLast =
+      last === undefined || last === null
+        ? null
+        : {
+            at: last.at,
+            imported: last.report.reduce((sum, item) => sum + item.imported.length, 0),
+            moved: last.report.reduce((sum, item) => sum + (item.cleanup?.moved.reduce((m, home) => m + home.count, 0) ?? 0), 0),
+            rejected: last.report.reduce((sum, item) => sum + item.rejected.length, 0),
+            skipped: last.report
+              .filter((item) => item.skipped !== null)
+              .map((item) => ({ hostName: item.hostName, reason: item.skipped as string })),
+          };
     return {
       provider: config.classifierProvider,
       model: config.classifierModel,
       auto: config.classifierAuto,
       projectId: config.classifierProjectId,
-      offerCleanup: config.offerCleanup,
+      hubOnly: config.hubOnly,
+      hubOnlyLast,
       providers,
       projects,
     };
@@ -1114,15 +1221,19 @@ export function createSkillsHubService(
 
   const handlers = {
     skills_settings: async () => settingsView(),
-    skills_settings_set: async (input: { provider?: string; model?: string; auto?: boolean; projectId?: string; offerCleanup?: boolean }) => {
+    skills_settings_set: async (input: { provider?: string; model?: string; auto?: boolean; projectId?: string; hubOnly?: boolean }) => {
       const before = await readConfig();
       await saveConfig({
         ...(input.provider !== undefined ? { skillsClassifierProvider: input.provider } : {}),
         ...(input.model !== undefined ? { skillsClassifierModel: input.model } : {}),
         ...(input.auto !== undefined ? { skillsClassifierAuto: input.auto } : {}),
         ...(input.projectId !== undefined ? { skillsClassifierProjectId: input.projectId } : {}),
-        ...(input.offerCleanup !== undefined ? { skillsOfferCleanup: input.offerCleanup } : {}),
+        ...(input.hubOnly !== undefined ? { skillsHubOnly: input.hubOnly } : {}),
       });
+      // Turning the mode on starts one enforcement run right away.
+      if (input.hubOnly === true) {
+        void enforceHubOnlyMode().catch((cause: unknown) => bb.log.warn(`skills hub-only: ${String(cause)}`));
+      }
       const after = await readConfig();
       // A new model or provider starts a new classifier thread with the next skill.
       if (after.classifierProvider !== before.classifierProvider || after.classifierModel !== before.classifierModel) {
@@ -1182,7 +1293,7 @@ export function createSkillsHubService(
       return { results, hub: await view(true) };
     },
     skills_machines_cleanup: async ({ hostId, dryRun }: { hostId: string; dryRun: boolean }) => {
-      const result = (await host.call("skill_homes_cleanup", { dryRun }, { hostId, timeoutMs: 180_000 })) as {
+      const result = (await host.call("skill_homes_cleanup", { dryRun, protect: await protectPaths() }, { hostId, timeoutMs: 180_000 })) as {
         backup: string | null;
         moved: Array<{ id: string; count: number }>;
         errors: string[];
@@ -1337,7 +1448,7 @@ export function createSkillsHubService(
       }
       case "skills-cleanup": {
         if (hostId === null) return t("Укажите машину: bb tools skills-cleanup --host <машина> [--dry-run]");
-        const result = (await host.call("skill_homes_cleanup", { dryRun }, { hostId, timeoutMs: 180_000 })) as {
+        const result = (await host.call("skill_homes_cleanup", { dryRun, protect: await protectPaths() }, { hostId, timeoutMs: 180_000 })) as {
           backup: string | null;
           moved: Array<{ id: string; count: number }>;
           errors: string[];
@@ -1348,6 +1459,33 @@ export function createSkillsHubService(
           ...result.moved.map((item) => `  ${item.id}: ${item.count}`),
           ...result.errors.map((error) => `  ✗ ${error}`),
         ].join("\n");
+      }
+      case "skills-hub-only": {
+        const config = await readConfig();
+        if (args.includes("--run")) {
+          if (!config.hubOnly) {
+            return t("Режим «только на хабе» выключен: включите его в настройках плагина (Настройки → Инструменты агентов)");
+          }
+          const report = await enforceHubOnlyMode();
+          if (json) return JSON.stringify(report, null, 2);
+          return formatHubOnlyReport(report).join("\n");
+        }
+        const last = await bb.storage.kv.get<{ at: number; report: HubOnlyReport }>(KV.hubOnlyLast);
+        if (json) return JSON.stringify({ hubOnly: config.hubOnly, last: last ?? null }, null, 2);
+        const lines = [config.hubOnly ? t("Режим «только на хабе» включён") : t("Режим «только на хабе» выключен")];
+        if (last === undefined || last === null) {
+          lines.push(t("Прогонов ещё не было"));
+        } else {
+          lines.push(
+            tp(
+              "Последний прогон: {0}",
+              new Date(last.at).toLocaleString(getLang() === "ru" ? "ru-RU" : "en-US", { dateStyle: "medium", timeStyle: "short" }),
+            ),
+          );
+          lines.push(...formatHubOnlyReport(last.report));
+        }
+        lines.push(t("Прогон по требованию: bb tools skills-hub-only --run"));
+        return lines.join("\n");
       }
       case "skills-suggest": {
         const config = await readConfig();
@@ -1423,7 +1561,7 @@ export function createSkillsHubService(
     }
   }
 
-  return { handlers, cli, configureThread, publicTools, kick, kickCards, refreshMachines, view };
+  return { handlers, cli, configureThread, publicTools, kick, kickCards, refreshMachines, view, enforceHubOnly: enforceHubOnlyMode };
 }
 
 export const SKILLS_CLI_USAGE = [
@@ -1440,4 +1578,25 @@ export const SKILLS_CLI_USAGE = [
   "  bb tools skills-machines                    Копии навыков на машинах",
   "  bb tools skills-import --host <машина> [--dry-run]  Перенести на хаб навыки, которых там нет",
   "  bb tools skills-cleanup --host <машина> [--dry-run]  Убрать копии с машины в архив",
+  "  bb tools skills-hub-only [--run] [--json]  Режим «только на хабе»: отчёт или прогон",
 ];
+
+/** Human-readable lines for one hub-only report (CLI and tests). */
+export function formatHubOnlyReport(report: HubOnlyReport): string[] {
+  const lines: string[] = [];
+  for (const item of report) {
+    if (item.skipped !== null) {
+      lines.push(tp("{0}: пропущено — {1}", item.hostName, item.skipped));
+      continue;
+    }
+    const moved = item.cleanup?.moved.reduce((sum, home) => sum + home.count, 0) ?? 0;
+    lines.push(
+      `${item.hostName}: ${tp("импортировано {0}", item.imported.length)}, ${tp("отклонено {0}", item.rejected.length)}, ${tp("убрано {0}", moved)}` +
+        (item.cleanup?.backup ? ` → ${item.cleanup.backup}` : ""),
+    );
+    if (item.rejected.length > 0) {
+      lines.push(`  ${tp("отклонены: {0}", item.rejected.map((entry) => `${entry.name} (${entry.reason})`).join("; "))}`);
+    }
+  }
+  return lines;
+}

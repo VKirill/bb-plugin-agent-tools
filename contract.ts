@@ -469,9 +469,19 @@ export const hostContract = defineRpcContract({
     }),
     output: z.object({ ok: z.boolean(), path: z.string().max(600).nullable(), error: z.string().max(400).nullable() }),
   },
-  /** How many skills each CLI skill folder on this machine still holds. */
+  /** Folders the caller protects (the hub canon): never counted, listed or moved. */
   skill_homes_count: {
-    input: z.object({}),
+    input: z.object({
+      protect: z
+        .array(
+          z.union([
+            z.string().max(600),
+            z.object({ path: z.string().max(600), token: z.string().max(200).nullable().optional() }),
+          ]),
+        )
+        .max(8)
+        .optional(),
+    }),
     output: z.object({
       homes: z.array(z.object({ id: z.string(), path: z.string(), skills: z.number(), links: z.number() })).max(32),
       found: z
@@ -482,7 +492,18 @@ export const hostContract = defineRpcContract({
   },
   /** Move every skill out of the CLI skill folders into a dated backup. */
   skill_homes_cleanup: {
-    input: z.object({ dryRun: z.boolean() }),
+    input: z.object({
+      dryRun: z.boolean(),
+      protect: z
+        .array(
+          z.union([
+            z.string().max(600),
+            z.object({ path: z.string().max(600), token: z.string().max(200).nullable().optional() }),
+          ]),
+        )
+        .max(8)
+        .optional(),
+    }),
     output: z.object({
       backup: z.string().max(600).nullable(),
       moved: z.array(z.object({ id: z.string(), count: z.number() })).max(32),

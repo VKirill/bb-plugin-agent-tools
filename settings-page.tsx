@@ -2,23 +2,32 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server";
-import { t } from "./i18n";
+import { getLang, t, tp } from "./i18n";
 import { Switch } from "@/components/ui/switch";
 import { Icon } from "@/components/ui/icon";
+
+type HubOnlyLast = {
+  at: number;
+  imported: number;
+  moved: number;
+  rejected: number;
+  skipped: Array<{ hostName: string; reason: string }>;
+};
 
 type Settings = {
   provider: string;
   model: string;
   auto: boolean;
   projectId: string;
-  offerCleanup: boolean;
+  hubOnly: boolean;
+  hubOnlyLast: HubOnlyLast | null;
   providers: Array<{ id: string; label: string; available: boolean }>;
   projects: Array<{ id: string; name: string }>;
 };
 
 type ModelOption = { id: string; label: string; description: string };
 
-function Field({ label, hint, children, htmlFor }: { label: string; hint?: string; children: ReactNode; htmlFor?: string }) {
+function Field({ label, hint, children, htmlFor }: { label: ReactNode; hint?: string; children: ReactNode; htmlFor?: string }) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[14rem_minmax(0,1fr)] sm:items-start sm:gap-4">
       <div>
@@ -65,7 +74,7 @@ export function SettingsPage() {
   }, [provider, rpc]);
 
   const save = useCallback(
-    async (patch: { provider?: string; model?: string; auto?: boolean; projectId?: string; offerCleanup?: boolean }) => {
+    async (patch: { provider?: string; model?: string; auto?: boolean; projectId?: string; hubOnly?: boolean }) => {
       setBusy(true);
       setError(null);
       setSaved(false);
@@ -181,22 +190,47 @@ export function SettingsPage() {
         <div className="at-panel-head">
           <h2 className="text-sm font-medium">{t("Навыки на машинах")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {t("Канон навыков — хаб BB: он отдаёт навыки в каждую сессию на любой машине. Навыки, найденные на машинах, плагин только копирует на хаб — оригиналы остаются на месте.")}
+            {t("Канон навыков — хаб BB: он отдаёт навыки в каждую сессию на любой машине.")}
           </p>
         </div>
         <div className="at-panel-body space-y-5 p-4">
           <Field
-            label={t("Предлагать убрать копии")}
-            hint={t("Включите, если хотите убрать дубли: на странице «Навыки» появится «Очистить…», копии уедут в архив на той же машине. Без этого папки навыков на машинах не меняются.")}
+            label={
+              <span className="inline-flex items-center">
+                {t("Только на хабе")}
+                <span className="at-pill at-pill-warning at-label-badge">{t("Эксперимент")}</span>
+              </span>
+            }
+            hint={t("Раз в час плагин переносит на хаб навыки, которых там нет, и убирает копии с машин в архив на той же машине. Сессии получают навыки только с хаба. Выключено — папки навыков на машинах не меняются.")}
           >
             <Switch
               className="at-switch"
-              checked={settings.offerCleanup}
+              checked={settings.hubOnly}
               disabled={busy}
-              aria-label={t("Предлагать убрать копии")}
-              onCheckedChange={(offerCleanup) => void save({ offerCleanup })}
+              aria-label={t("Только на хабе")}
+              onCheckedChange={(hubOnly) => void save({ hubOnly })}
             />
           </Field>
+          {settings.hubOnlyLast === null ? null : (
+            <p className="text-xs text-muted-foreground">
+              {tp(
+                "Последний прогон: {0} · перенесено {1} · убрано {2} · отклонено {3}",
+                new Date(settings.hubOnlyLast.at).toLocaleString(getLang() === "ru" ? "ru-RU" : "en-US", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+                settings.hubOnlyLast.imported,
+                settings.hubOnlyLast.moved,
+                settings.hubOnlyLast.rejected,
+              )}
+              {settings.hubOnlyLast.skipped.length > 0
+                ? tp(
+                    " · пропущено: {0}",
+                    settings.hubOnlyLast.skipped.map((item) => `${item.hostName} (${item.reason})`).join("; "),
+                  )
+                : ""}
+            </p>
+          )}
         </div>
       </section>
 
