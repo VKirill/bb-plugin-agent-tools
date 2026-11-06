@@ -473,12 +473,7 @@ export const hostContract = defineRpcContract({
   skill_homes_count: {
     input: z.object({
       protect: z
-        .array(
-          z.union([
-            z.string().max(600),
-            z.object({ path: z.string().max(600), token: z.string().max(200).nullable().optional() }),
-          ]),
-        )
+        .array(z.object({ path: z.string().max(600), token: z.string().max(100) }))
         .max(8)
         .optional(),
     }),
@@ -495,12 +490,7 @@ export const hostContract = defineRpcContract({
     input: z.object({
       dryRun: z.boolean(),
       protect: z
-        .array(
-          z.union([
-            z.string().max(600),
-            z.object({ path: z.string().max(600), token: z.string().max(200).nullable().optional() }),
-          ]),
-        )
+        .array(z.object({ path: z.string().max(600), token: z.string().max(100) }))
         .max(8)
         .optional(),
     }),

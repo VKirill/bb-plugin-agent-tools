@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
@@ -926,17 +926,29 @@ export function createSkillsHubService(
     return token;
   }
 
+  /**
+   * Stamp the canon so the hub host can tell it apart from lookalike folders:
+   * the marker file carries the server token, and `.git/info/exclude` keeps
+   * the marker out of the canon's own git history.
+   */
+  async function stampCanon(dir: string, token: string): Promise<void> {
+    const marker = path.join(dir, CANON_MARKER);
+    const current = await readFile(marker, "utf8").catch(() => null);
+    if (current?.trim() !== token) {
+      await writeFile(marker, `${token}\n`).catch(() => undefined);
+    }
+    const gitDir = path.join(dir, ".git");
+    if ((await stat(gitDir).catch(() => null))?.isDirectory() !== true) return;
+    const exclude = path.join(gitDir, "info", "exclude");
+    const text = await readFile(exclude, "utf8").catch(() => null);
+    if (text === null || text.split("\n").includes(CANON_MARKER)) return;
+    const prefix = text.length === 0 || text.endsWith("\n") ? text : `${text}\n`;
+    await writeFile(exclude, `${prefix}${CANON_MARKER}\n`).catch(() => undefined);
+  }
+
   async function protectPaths(): Promise<ProtectEntry[]> {
     const token = await canonToken();
-    const real = await realpath(root).catch(() => null);
-    // Stamp the canon so the hub host can tell it apart from lookalike folders.
-    if (real !== null) {
-      const marker = path.join(real, CANON_MARKER);
-      const current = await readFile(marker, "utf8").catch(() => null);
-      if (current?.trim() !== token) {
-        await writeFile(marker, `${token}\n`).catch(() => undefined);
-      }
-    }
+    await stampCanon(root, token);
     return [{ path: root, token }];
   }
 
@@ -1564,6 +1576,9 @@ export function createSkillsHubService(
         return null;
     }
   }
+
+  // Stamp the canon marker once at start; every count/cleanup re-stamps via protectPaths.
+  void protectPaths().catch(() => undefined);
 
   return { handlers, cli, configureThread, publicTools, kick, kickCards, refreshMachines, view, enforceHubOnly: enforceHubOnlyMode };
 }
