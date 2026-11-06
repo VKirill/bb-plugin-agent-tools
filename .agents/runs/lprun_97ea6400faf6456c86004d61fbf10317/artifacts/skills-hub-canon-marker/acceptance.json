@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "task_id": "skills-hub-canon-marker",
+  "task_sha256": "e1b9030936208e799c347e4f47275ae6fb46d757dcddc7422febd53cb7c27ad3",
+  "attempt": 1,
+  "provider_exit": 0,
+  "report": "complete",
+  "report_sha256": "dcf261a6703313ac2bce5cc02c0e3ee05c48b1aa409d37ceda9c073f9c4fc704",
+  "owns_check": "passed",
+  "verification": "passed",
+  "review": "passed",
+  "accepted": true,
+  "accepted_at": "2026-11-06T00:37:40.867Z",
+  "model": "swe-2-flash-medium"
+}

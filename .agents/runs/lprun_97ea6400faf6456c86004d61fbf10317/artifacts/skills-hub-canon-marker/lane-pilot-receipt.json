@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "lanePilotRunId": "lprun_97ea6400faf6456c86004d61fbf10317",
+  "lanePilotTaskId": "skills-hub-canon-marker",
+  "attemptId": "lpattempt_b23b7a8abb3247238c64a3d125ce5748",
+  "pmThreadId": "thr_id8yvdhqvv",
+  "writerThreadId": "thr_vtcviywufb",
+  "ownsPaths": [
+    "host-skills.ts",
+    "host.ts",
+    "contract.ts",
+    "skills-hub-service.ts",
+    "hub-only.ts",
+    "tests/host-skills.test.ts",
+    "tests/hub-only.test.ts",
+    "package.json",
+    "CHANGELOG.md"
+  ],
+  "readFirst": [
+    {
+      "path": "host-skills.ts",
+      "windows": []
+    },
+    {
+      "path": "host.ts",
+      "windows": []
+    },
+    {
+      "path": "contract.ts",
+      "windows": []
+    },
+    {
+      "path": "skills-hub-service.ts",
+      "windows": []
+    },
+    {
+      "path": "hub-only.ts",
+      "windows": []
+    },
+    {
+      "path": "tests/host-skills.test.ts",
+      "windows": []
+    },
+    {
+      "path": "package.json",
+      "windows": []
+    },
+    {
+      "path": "CHANGELOG.md",
+      "windows": []
+    }
+  ],
+  "output": "Done. The marker-based protection in `host-skills.ts` was already merged by the previous task, so the work here was the server side: token lifecycle, canon stamping, `.git/info/exclude`, and tightening the host RPC schema.\n\nChanges:\n\n- `skills-hub-service.ts` — `canonToken()` reads/creates KV `skillCanonToken` once via `randomUUID()` (was already there); new `stampCanon()` writes `<root>/.agent-tools-canon` and appends `.agent-tools-canon` to `<root>/.git/info/exclude` when `.git` is a directory; `protectPaths()` now stamps at `root` on every call (used before every `skill_homes_count`/`skill_homes_cleanup`); service start kicks `void protectPaths()` so the marker is written at start too.\n- `contract.ts` — both `skill_homes_count` and `skill_homes_cleanup` `protect` schemas are now `z.array(z.object({ path: z.string().max(600), token: z.string().max(100) })).max(8).optional()` (dropped the string union and the 200-char token bound).\n- `package.json` — `0.2.29` (one patch above main's `0.2.28`); `CHANGELOG.md` — `## 0.2.29` entry describing marker-based canon recognition.\n\nVerification (run in both the worktree and the mirrored main checkout — all exit 0):\n\n- `node --experimental-strip-types /tmp/hub-canon-marker-check/check.mjs` → `canon marker check: ok`\n- `node --experimental-strip-types --test tests/host-skills.test.ts tests/hub-only.test.ts tests/contract.test.ts` → 12/12 pass\n- `npx tsc --noEmit` → clean\n\nChanged paths: `skills-hub-service.ts`, `contract.ts`, `package.json`, `CHANGELOG.md`.\n\n```plan-fact\n[\n  {\"item\":1,\"status\":\"done\",\"evidence\":[\"host-skills.ts:113-142\",\"cmd:node --experimental-strip-types /tmp/hub-canon-marker-check/check.mjs\"]},\n  {\"item\":2,\"status\":\"done\",\"evidence\":[\"host-skills.ts:140-142\",\"host-skills.ts:148-160\",\"host-skills.ts:216-230\",\"tests/host-skills.test.ts\",\"cmd:node --experimental-strip-types /tmp/hub-canon-marker-check/check.mjs\"]},\n  {\"item\":3,\"status\":\"done\",\"evidence\":[\"skills-hub-service.ts:312\",\"skills-hub-service.ts:921-927\",\"skills-hub-service.ts:934-953\",\"skills-hub-service.ts:1580-1582\",\"skills-hub-service.ts:962\",\"skills-hub-service.ts:1012\"]},\n  {\"item\":4,\"status\":\"done\",\"evidence\":[\"contract.ts:473-480\",\"contract.ts:489-497\"]},\n  {\"item\":5,\"status\":\"done\",\"evidence\":[\"package.json:3\",\"CHANGELOG.md:5-7\",\"cmd:npx tsc --noEmit\"]}\n]\n```",
+  "verification": [
+    {
+      "command": "node --experimental-strip-types /tmp/hub-canon-marker-check/check.mjs",
+      "exitCode": 0,
+      "stdout": "canon marker check: ok\r\n",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "fdbe67178107d46e34ad7e206cb845f63a1ffaf7ea818c6b435ca3ede25d103e",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_96c0aa4cc11b4229808b9fdc4b859f33/bb-plugin-agent-tools",
+      "revision": {
+        "head": "e77f300c90a9fe26cb8675b2e2c9c42d425af348",
+        "dirty": 4
+      }
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/host-skills.test.ts tests/hub-only.test.ts tests/contract.test.ts",
+      "exitCode": 0,
+      "stdout": "✔ Cursor bridge with tool schemas larger than 8192 survives the full host scan contract (4.88275ms)\r\n✔ MCP environment values stay bounded at 131,072 characters without clipping (0.454375ms)\r\n✔ raising the env limit leaves HTTP header limits intact (0.096875ms)\r\n✔ count and clean CLI skill folders, keeping what the CLI owns (10.765ms)\r\n✔ a protected folder (the hub canon) is never counted, listed or moved (12.8535ms)\r\n✔ a protect path through a symlink also protects the canon (3.824625ms)\r\n✔ pack a draft and unpack it into drafts, keeping the previous copy (13.217125ms)\r\n✔ machine skills: links resolve, newest copy wins, CLI-owned folders are skipped (2.637875ms)\r\n✔ imports what the hub lacks, rejects blocking problems, cleans only safe machines (1.870458ms)\r\n✔ an empty machine is still cleaned so the hub marker is written (0.089417ms)\r\n✔ a dep that throws for one machine does not stop the others (0.171958ms)\r\n✔ a rejected skill names its blocking reasons (0.098792ms)\r\nℹ tests 12\r\nℹ suites 0\r\nℹ pass 12\r\nℹ fail 0\r\nℹ cancelled 0\r\nℹ skipped 0\r\nℹ todo 0\r\nℹ duration_ms 184.904917\r\n",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "fd409a8367fdc4f8c54eacdee566e387726f46e2f8f5ff19cf8099741bfa1e35",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_96c0aa4cc11b4229808b9fdc4b859f33/bb-plugin-agent-tools",
+      "revision": {
+        "head": "e77f300c90a9fe26cb8675b2e2c9c42d425af348",
+        "dirty": 4
+      }
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "stdout": "\\\u001b[1G\u001b[0K\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m New \u001b[31mmajor\u001b[39m version of npm available! \u001b[31m11.16.0\u001b[39m -> \u001b[34m12.2.2\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m Changelog: \u001b[34mhttps://github.com/npm/cli/releases/tag/v12.2.2\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m To update run: \u001b[4mnpm install -g npm@12.2.2\u001b[24m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m\r\n\\\u001b[1G\u001b[0K",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "866dc4e60012ffdc0715567f0ce1a80a3c52a6fb62ba2df0b1652062c6fdf16f",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_96c0aa4cc11b4229808b9fdc4b859f33/bb-plugin-agent-tools",
+      "revision": {
+        "head": "e77f300c90a9fe26cb8675b2e2c9c42d425af348",
+        "dirty": 4
+      }
+    }
+  ],
+  "runV2": {
+    "schemaVersion": 1,
+    "pools": {
+      "provider": 15,
+      "verification": 2
+    },
+    "score": 5,
+    "risk": "medium",
+    "sourceRisk": "medium",
+    "scoreAdapter": "task-risk-v1"
+  },
+  "reasoning": [
+    {
+      "planSha256": "338add8d0c57ca27da87b048b00e9bc3c177db42bb935a7c3b12ffa88f924c40",
+      "sentPlanSha256": null,
+      "sourceLength": 13206,
+      "sentLength": null,
+      "jevStatus": "disabled",
+      "jevDecision": null,
+      "requestedReasoningLevel": "medium",
+      "effectiveReasoningLevel": "medium",
+      "fallbackReason": "jev_disabled;jev_disabled_by_project_setting",
+      "retryEffort": {
+        "enabled": false,
+        "retryIndex": 0,
+        "before": "medium",
+        "after": "medium",
+        "changed": false
+      },
+      "providerId": "devin",
+      "model": "swe-2-flash-medium",
+      "serviceTier": "fast",
+      "requestedServiceTier": "fast",
+      "runId": "lprun_97ea6400faf6456c86004d61fbf10317",
+      "attemptId": "lpattempt_b23b7a8abb3247238c64a3d125ce5748",
+      "threadId": "thr_vtcviywufb",
+      "effortMode": "manual",
+      "selectionSource": {
+        "providerId": "devin",
+        "model": "swe-2-flash-medium",
+        "reasoningLevel": "medium",
+        "serviceTier": "fast",
+        "reasoningLevelSource": "explicit"
+      },
+      "dispatchContext": {
+        "memoryText": "",
+        "memoryPicked": [],
+        "rulesText": "- In verification scripts and tests that create temp dirs, use /tmp explicitly (mktemp -d /tmp/x.XXXXXX, or TMPDIR=/tmp): the writer sandbox denies mkdtemp in the system TMPDIR under /var/folders. Keep PM-written check scripts in /tmp/<name>/ (the guard blocks .mjs under .agents/).\n- In a folder without git (live-folder mode), never put a task's expected_outputs or owns_paths under .bb/ (chat folders): the live snapshot skips .bb, so a file written there is never counted as produced and the task blocks as missing expected_outputs. Put task deliverables in a project folder such as docs/ or reports/.\n- Правя тестовый файл из owns_paths, меняй только ожидаемые значения внутри существующих строгих assert (deepEqual/equal) и добавляй новые проверки рядом — не удаляй строки assert и не ослабляй строгую проверку до assert.ok/includes/truthiness; перед ответом перечитай свой diff по тестам и верни всё, что стало слабее: test_fit помечает это как сломанную проверку, и попытки сгорают до лимита.\n- For a BB ACP provider, check every launch spec and output shape against BB's own bridge code before shipping: permission flags are inserted at permissionCli.insertAfterArgs (default 0, so a /bin/sh -c wrapper needs insertAfterArgs after its args), and agent_message_chunk keeps only text (image blocks are dropped; show pictures as Markdown ![alt](workspace-relative path)).\n- In muse-ai-connector, every check script or test that imports bridge/ modules must set MUSE_BRIDGE_HOME to a fresh mkdtemp under /tmp before the import; never let a check write into the real ~/.muse-bridge (accounts, cookies, cache).\n- In BB plugin CSS never derive paddings or gaps from var(--spacing): BB runs Tailwind v4 where --spacing is 4px. Define the plugin's own spacing tokens with concrete px values (gap 16, page padding 24, card padding 20) and give plugin UI plans a spacing table plus ASCII mocks for every page.",
+        "rulesPicked": {
+          "total": 28,
+          "picked": [
+            "rule_501a857c9b1bd60a",
+            "rule_df3e34f2aef5a993",
+            "rule_af70160574711f7e",
+            "rule_17e6afe8b5c0e8d9",
+            "rule_93325eb4e64a63d7",
+            "rule_e8336cd3bb414e7c"
+          ]
+        },
+        "executionPacket": "Read these before editing; they are the context for this task:\n- .agents/plans/2026-11-05-skills-hub-only-mode.md (not in the workspace; skip it)\n- host-skills.ts L1-L224 (sha256 85de3295)\n- host.ts L1-L1227 (sha256 3da95a4c)",
+        "executionPacketSha256": "b15b6bfd793e328022a14f1bf35d0825d803486e87c9723f094beba6c00f4083",
+        "pmReadContext": "{\"summary\":\"This task implements an experimental, off-by-default 'skills only on the hub' mode (version 0.2.27) in the Agent Tools plugin, replacing the legacy 'skillsOfferCleanup' ('Предлагать убрать копии') setting. Under this mode, CLI skill directories across all enrolled machines are automatically kept empty by an hourly sweep that imports missing skills to the BB hub and archives local machine copies, ensuring agent sessions receive skills solely from the hub. Crucially, the hub host's canon folder (~/.bb/skills) is protected from automated cleanup. The task spans seven primary areas: (1) 'host-skills.ts' updates to support a 'protect' directory list in 'countSkillHomes', 'listMachineSkills', and 'cleanupSkillHomes'; (2) 'host.ts' and 'contract.ts' updates passing 'protect' through host RPC endpoints 'skill_homes_count' and 'skill_homes_cleanup'; (3) creation of 'hub-only.ts' containing the testable, pure function 'enforceHubOnly' with robust error handling, distinguishing between transient failures and blocking rejection; (4) service and server integration in 'skills-hub-service.ts' and 'server.ts' replacing 'offerCleanup' with 'hubOnly' / 'skillsHubOnly', adding concurrency locking, hourly sweep invocation, background triggering on activation, and KV storage of the last run report in 'skillHubOnlyLast'; (5) CLI support for 'bb tools skills-hub-only [--json|--run]'; (6) UI updates in 'settings-page.tsx' and 'app.css' replacing the cleanup switch with a 'Только на хабе' toggle, 'Эксперимент' badge, status reporting, and English i18n cleanup; and (7) test coverage in 'tests/hub-only.test.ts' and 'tests/host-skills.test.ts', alongside release updates in 'package.json' and 'CHANGELOG.md'. However, because the execution packet only provided excerpts from the plan, 'host-skills.ts', and the first 32 lines of 'host.ts', all implementation details in 'contract.ts', 'skills-hub-service.ts', 'server.ts', 'settings-page.tsx', 'i18n.en.ts', and existing test suites must be verified directly against the codebase.\",\"keyFacts\":[\"MACHINE_SKILL_HOMES in host-skills.ts defines 10 CLI skill directories (.agents/skills, .claude/skills, .codex/skills, .bb/skills, .gemini/config/skills, .gemini/skills, .config/opencode/skills, .cursor/skills, .qwen/skills, .grok/skills), keeping 'synced' in claude.\",\"HUB_MARKER in host-skills.ts is 'skills-on-hub', written into ~/.agents/skills-on-hub during cleanup to notify tool installers that skills reside on the hub.\",\"countSkillHomes currently counts links and skill directories per CLI folder without supporting a protect list (host-skills.ts).\",\"listMachineSkills currently filters out BB_OWN_SKILLS ('bb-cli') and OWNED_ROOTS, resolving symlinks to real paths and verifying SKILL.md, but does not support a protect list (host-skills.ts).\",\"cleanupSkillHomes currently moves skills into ~/.agents/skills-backups/cleanup-<timestamp>/<location.id>, preserves CLI-owned folders, moves .git directories, and writes a README and HUB_MARKER (host-skills.ts).\",\"host.ts imports countSkillHomes, listMachineSkills, cleanupSkillHomes, packSkillDir, and unpackSkill from host-skills.ts and exposes host RPC handlers via @get-bb/plugin-sdk/host.\",\"Under version 0.2.26, cleanup was strictly a manual operation (skills_machines_cleanup / bb tools skills-cleanup) gated by skillsOfferCleanup (off by default) (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"The hub host may be an enrolled BB machine where ~/.bb/skills is the canon itself, meaning automated cleanup must never move it (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"countSkillHomes, listMachineSkills, and cleanupSkillHomes must accept an optional protect: string[] = [] parameter, ignoring any folder that equals or resides within a protected path based on realpath or resolved path (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"Host RPC schemas for skill_homes_count and skill_homes_cleanup must be updated in host.ts and contract.ts to accept protect: z.array(z.string().max(600)).max(8).optional() (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"The server (skills-hub-service.ts) must always pass [root] (hub canon path) as the protect parameter in all count and cleanup calls (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"hub-only.ts must export enforceHubOnly(deps: HubOnlyDeps): Promise<HubOnlyReport>, defining deps for hosts, refresh, importSkill, cleanup, and log (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"In enforceHubOnly, if refresh fails with an error, the machine must be marked as skipped with the error text, skipping both import and cleanup (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"In enforceHubOnly, un-synced skills with blocking problems are rejected (to be archived), whereas transient failures (network/git push) cause cleanup to be skipped for that machine, recording the skill and error in skipped (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"In enforceHubOnly, cleanup must execute if all imports succeed or fail with blocking problems, even if machine folders are already empty, ensuring HUB_MARKER is written (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"Any thrown error during dep execution for one machine in enforceHubOnly must be caught, logged, and converted to a skipped entry without halting other machines (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"The plugin setting skillsOfferCleanup in server.ts must be replaced with skillsHubOnly: boolean (default false), with no migration carrying over prior 'true' values (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"SkillsHubConfig and related schemas in skills-hub-service.ts must replace offerCleanup with hubOnly, while view() preserves offerCleanup: config.hubOnly so skills-page.tsx requires no change (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"A module-level lock in skills-hub-service.ts must prevent concurrent enforceHubOnly runs by returning the in-flight Promise (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"The hourly sweep in server.ts must invoke skillsHub.enforceHubOnly() if skillsHubOnly is true, executing before the classifier pass (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"Enabling skillsHubOnly via skills_settings_set must trigger an immediate un-awaited background enforcement run (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"The latest enforcement report must be stored in KV key 'skillHubOnlyLast' as { at, report } (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"CLI command 'bb tools skills-hub-only [--json]' prints mode status and the latest report, while '--run' executes enforcement only if the mode is enabled (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"In settings-page.tsx, panel «Навыки на машинах» replaces the offer-cleanup toggle with a 'Только на хабе' switch, 'Эксперимент' badge, hint text, and last-run summary line (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"All references to «Предлагать убрать копии» and its hint must be removed from settings-page.tsx and i18n.en.ts (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"package.json must be bumped to version 0.2.27, and CHANGELOG.md must add section ## 0.2.27 in Russian (.agents/plans/2026-11-05-skills-hub-only-mode.md).\",\"Out of scope for this task: bbSkillsDenied category switches, Lane Stack installer adjustments, skill_hint.py, docs/, README.md, PROJECT.md, and UI language switches (.agents/plans/2026-11-05-skills-hub-only-mode.md).\"],\"openQuestions\":[\"What are the existing implementations of the host RPC endpoints skill_homes_count and skill_homes_cleanup in host.ts (truncated beyond line 32)?\",\"How are host RPC contracts and schemas currently declared in contract.ts, as the file was omitted from the excerpts?\",\"What is the exact current structure of SkillsHubConfig, readConfig, settingsView, refreshMachines, and publishFromHost in skills-hub-service.ts?\",\"How does publishFromHost currently construct and return problems and whether it already flags them with a boolean 'blocking' property?\",\"How are settings schemas and the hourly background sweep scheduled and registered in server.ts?\",\"Does app.css already contain a suitable badge class for the 'Эксперимент' badge, or must .at-badge be created from scratch?\",\"What exact translation keys and English phrases exist in i18n.en.ts for the legacy cleanup strings being removed?\",\"What does the current tests/host-skills.test.ts look like and what fixture or mock helpers does it use for testing skill folders?\",\"What specific assertions and mocks are implemented in the external verification script /tmp/hub-only-check/check.mjs?\"]}",
+        "agent": "Lane Pilot writer",
+        "promptChars": 17991,
+        "helperMode": "roles",
+        "helperRequired": false,
+        "skillPick": {
+          "enabled": true,
+          "skills": [
+            "agent-tools"
+          ],
+          "picked": [],
+          "craft": [],
+          "projectFolder": [
+            "agent-tools"
+          ],
+          "hints": [],
+          "sources": {
+            "agent-tools": "/Users/vechkasov/.bb/plugins/cache/git/github.com/VKirill/bb-plugin-agent-tools/2b27c9b4d2ffe2e5cad90e4b12c39fe4456d9dab/skills/agent-tools"
+          },
+          "reason": null,
+          "materialized": []
+        },
+        "writerKey": "devin/swe-2-flash-medium",
+        "harness": {
+          "id": "hrn_6da80600adedc5ce",
+          "arm": null,
+          "alwaysOnChars": 0,
+          "skills": [],
+          "checks": [],
+          "materialize": null
+        }
+      }
+    }
+  ],
+  "emergencyFallback": null,
+  "warnings": [
+    "missing expected_outputs: host-skills.ts (checks are green and every changed file is inside owns_paths)",
+    "the report has no APPROACH line",
+    "the report has no LESSON line (a lesson, or none with the reason)"
+  ],
+  "turns": 1
+}
