@@ -159,15 +159,12 @@ export function plural(count: number, forms: [string, string, string]): string {
   return `${count} ${forms[2]}`;
 }
 
-/** Числа и флаги одного шага «синк канона → раскатка домов» — для CLI и экрана. */
+/** Числа и флаги одного шага раскатки домов — для CLI и экрана. */
 export type RolloutDescription = {
   dryRun: boolean;
-  remoteConfigured: boolean;
   canonEmpty: boolean;
   /** Сколько скиллов канона нет хотя бы на одной машине. */
   notOnAllMachines: number;
-  synced: number;
-  syncFailed: number;
   applied: number;
   failed: number;
   skippedByPlugin: string[];
@@ -189,37 +186,20 @@ export function describeRollout(input: RolloutDescription): string {
   if (promoted > 0 || promoteFailed > 0) {
     lines.push(tp("В канон: {0}, ошибок {1}", promoted, promoteFailed));
   }
-  const intraMachineRemoteHint = t(
-    "кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках",
-  );
 
-  if (input.dryRun && input.remoteConfigured) {
-    lines.push(
-      tp("Синк канона не выполнялся. План раскладки: {0}, ошибок {1}", input.applied, input.failed),
-    );
-  } else if (ops === 0 && input.canonEmpty && input.syncFailed === 0 && input.errors.length === 0) {
+  if (ops === 0 && input.canonEmpty && input.errors.length === 0) {
     lines.push(t("Канон пуст"));
-  } else if (input.remoteConfigured) {
-    lines.push(
-      tp(
-        "Канон синхронизирован: машин {0}, ошибок {1}. Разложено: {2}, ошибок {3}",
-        input.synced,
-        input.syncFailed,
-        input.applied,
-        input.failed,
-      ),
-    );
   } else if (ops === 0 && input.notOnAllMachines > 0) {
     lines.push(
       tp(
-        "{0} есть не на всех машинах; кнопка раскладывает канон только внутри машины, для переноса задайте git-remote синка в настройках",
+        "{0} есть не на всех машинах; кнопка раскладывает канон только внутри машины",
         plural(input.notOnAllMachines, ["скилл", "скилла", "скиллов"]),
       ),
     );
   } else if (ops === 0) {
     lines.push(t("Дома уже совпадают с каноном."));
   } else {
-    lines.push(`${tp("Разложено: {0}, ошибок: {1}", input.applied, input.failed)}. ${intraMachineRemoteHint}`);
+    lines.push(tp("Разложено: {0}, ошибок: {1}", input.applied, input.failed));
   }
 
   if (input.skippedByPlugin.length > 0) {
@@ -237,7 +217,7 @@ export function countSkillsNotOnAllMachines(
   return skillCanon.filter((row) => row.hosts.some((item) => item.state === "missing")).length;
 }
 
-/** Лимит текста ошибки host RPC skills_sync — server+host контракт. */
+/** Лимит текста ошибки host RPC — server+host контракт. */
 export const SKILLS_SYNC_ERROR_LIMIT = 2000;
 
 /** Таймаут host.call для синка и раскатки канона. */
@@ -261,7 +241,7 @@ export function partitionSkillHosts<T extends SkillHostRef>(
   };
 }
 
-/** Текст таймаута без имени машины — имя добавит summarizeCanonSync / fan-out. */
+/** Текст таймаута без имени машины — имя добавит fan-out. */
 export function formatHostCallTimeout(timeoutMs = SKILLS_HOST_CALL_TIMEOUT_MS): string {
   return tp("машина не ответила за {0} с", Math.max(1, Math.ceil(timeoutMs / 1000)));
 }
@@ -313,43 +293,9 @@ export function clipErrorText(text: string, limit = SKILLS_SYNC_ERROR_LIMIT): st
   return `${trimmed.slice(0, Math.max(0, limit - 1))}…`;
 }
 
-export type SyncHostResult = {
-  hostId: string;
-  hostName: string;
-  ok: boolean;
-  error: string | null;
-};
-
-/** Собрать ошибки синка по машинам: имя + текст, счётчики, кого не раскатывать. */
-export function summarizeCanonSync(results: readonly SyncHostResult[]): {
-  synced: number;
-  failed: number;
-  errors: string[];
-  failedHostIds: string[];
-  okHostIds: string[];
-} {
-  let synced = 0;
-  let failed = 0;
-  const errors: string[] = [];
-  const failedHostIds: string[] = [];
-  const okHostIds: string[] = [];
-  for (const item of results) {
-    if (item.ok) {
-      synced += 1;
-      okHostIds.push(item.hostId);
-      continue;
-    }
-    failed += 1;
-    failedHostIds.push(item.hostId);
-    const reason = item.error?.trim() ? item.error.trim() : t("ошибка");
-    errors.push(`${item.hostName}: ${reason}`);
-  }
-  return { synced, failed, errors, failedHostIds, okHostIds };
-}
-
 /**
- * Раскатка только на машинах, где синк прошёл.
- * Политика: провал синка → на этой машине дома не трогать, иначе разложится устаревший канон.
+ * Раскатка только на выбранных машинах.
+ * Политика: провал на машине → на этой машине дома не трогать.
  */
 export function selectFanOutHostIds(
   targetIds: readonly string[],
@@ -394,69 +340,4 @@ function windowsBinDirs(homeDir: string): string[] {
     `${homeDir}\\scoop\\shims`,
   );
   return dirs;
-}
-
-/** Схема remote без URL и без секретов — чтобы ошибка сказала, чего не хватает. */
-export function remoteAccessHint(remote: string): string {
-  if (/^git@/i.test(remote) || /^ssh:\/\//i.test(remote)) {
-    return "remote: ssh (нужен ключ или ssh-agent в окружении host-процесса)";
-  }
-  if (/^https:\/\//i.test(remote)) {
-    return "remote: https (нужен credential helper или токен в неинтерактивном окружении)";
-  }
-  if (/^http:\/\//i.test(remote)) {
-    return "remote: http (нужен credential helper в неинтерактивном окружении)";
-  }
-  if (/^file:\/\//i.test(remote) || remote.startsWith("/")) return "remote: file";
-  return "remote: неизвестная схема";
-}
-
-/** Имена из «untracked working tree files would be overwritten by merge». */
-export function parseUntrackedOverwriteNames(stderr: string): string[] {
-  const names: string[] = [];
-  let inList = false;
-  for (const raw of stderr.split("\n")) {
-    if (raw.includes("untracked working tree files would be overwritten")) {
-      inList = true;
-      continue;
-    }
-    if (!inList) continue;
-    const line = raw.trim();
-    if (line === "") continue;
-    if (line.startsWith("Please ") || line.startsWith("Aborting") || line.startsWith("error:")) break;
-    names.push(line);
-  }
-  return names;
-}
-
-export function isRebaseConflict(stderr: string): boolean {
-  return /could not apply|CONFLICT \(|rebase in progress|Resolve all conflicts|failed to merge/i.test(stderr);
-}
-
-/** Текст отказа git для host RPC: stderr, схема remote, путь git. Без секретов. */
-export function formatSkillsSyncError(
-  cause: unknown,
-  remote: string,
-  gitBin: string | null,
-): string {
-  const exec = cause as { stderr?: unknown; message?: unknown };
-  const stderr = typeof exec.stderr === "string" ? exec.stderr : "";
-  const message = cause instanceof Error ? cause.message : String(cause);
-  const body = (stderr.trim() !== "" ? stderr : message).trim();
-  const bits: string[] = [];
-  if (gitBin === null) {
-    bits.push("git не найден (искали /usr/bin/git, /opt/homebrew/bin/git, xcode-select)");
-  } else {
-    bits.push(`git: ${gitBin}`);
-  }
-  bits.push(remoteAccessHint(remote));
-  const untracked = parseUntrackedOverwriteNames(body);
-  if (untracked.length > 0) {
-    bits.push(`незакоммиченные файлы оставлены: ${untracked.join(", ")}`);
-  }
-  if (isRebaseConflict(body)) {
-    bits.push("конфликт rebase: репозиторий возвращён к состоянию до pull (git rebase --abort)");
-  }
-  bits.push(body);
-  return clipErrorText(bits.join("\n"));
 }

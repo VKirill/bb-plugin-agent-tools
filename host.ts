@@ -15,13 +15,13 @@ import { fromDialect, mergeEntry, toDialect } from "./normalize.js";
 import { readServers, removeServer, upsertServer } from "./toml-mcp.js";
 import { locationPolicy, planFanOut, type FanOutOp, type FanOutState, type SkillActionMode } from "./skills.js";
 import { binCandidates, wrapForWindows } from "./platform.js";
-import { execFileOutput, resolveGitBin, runGit, syncSkillsCanon } from "./skills-sync.js";
+import { execFileOutput, resolveGitBin, runGit } from "./skills-sync.js";
 import { copySkillTree, isSkillJunk, measureBbTree, SKILL_TAR_EXCLUDES } from "./skill-tree.js";
 import { probeServer } from "./probe.js";
 import { parseOpenCodeText, applyOpenCodeOps } from "./opencode.js";
-import { formatSkillsSyncError, gitBinSearchDirs } from "./i18n.js";
+import { gitBinSearchDirs } from "./i18n.js";
 
-export { resolveGitBin, runGit, syncSkillsCanon };
+export { resolveGitBin, runGit };
 
 const BACKUP_PREFIX = ".bak-bb-mcp-";
 
@@ -1065,29 +1065,6 @@ export default experimental_defineHostEntry({
           error: null,
           message: previous === null ? `${name}: восстановлен` : `${name}: восстановлен, прежняя версия в архиве`,
         };
-      },
-
-      /**
-       * Синк канона с git-remote. Отказ всегда ok:false + stderr, без исключения.
-       * Расходящиеся и незакоммиченные файлы не затираем: чужое доливаем, своё оставляем.
-       */
-      skills_sync: async ({ remote }) => {
-        const dir = expand(".agents/skills");
-        const gitBin = await resolveGitBin();
-        if (gitBin === null) {
-          return {
-            ok: false,
-            error: formatSkillsSyncError(new Error("git не найден"), remote, null),
-            message: null,
-          };
-        }
-        return syncSkillsCanon(dir, remote, {
-          gitBin,
-          hostname: os.hostname(),
-          expand,
-          stamp,
-          fingerprintDir,
-        });
       },
 
       skills_archive: async ({ name }) => {

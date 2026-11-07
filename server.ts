@@ -35,12 +35,10 @@ import {
 } from "./contract";
 import { classifyLocal, classifyRole, fromDialect, sameServer } from "./normalize";
 import { bbInjectBytes, bbInjectTooHeavy, classifyCanonHostStates, computeSkillRows, effectiveCanonStamp, locationPath, planPromoteToCanon, planServerBbMirror } from "./skills";
-import { resolveGitBin, syncSkillsCanon } from "./skills-sync";
 import {
   bbServerSkillsDir,
   canonSkillsDir,
   extractSkillArchive,
-  fingerprintDir,
   isSafeSkillName,
   mirrorSkillFromCanon,
   scanSkillHome,
@@ -55,7 +53,6 @@ import {
   isUiLangChoice,
   describeRollout,
   countSkillsNotOnAllMachines,
-  summarizeCanonSync,
   selectFanOutHostIds,
   SKILLS_HOST_CALL_TIMEOUT_MS,
   partitionSkillHosts,
@@ -80,7 +77,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { createSkillsHubService, skillsRpcContract, SKILLS_CLI_USAGE } from "./skills-hub-service.ts";
 import { DEFAULT_EXCLUDE } from "./skill-suggest/suggest.ts";
-import { homedir, hostname as osHostname } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 
@@ -146,8 +143,6 @@ const overviewSchema = z.object({
   autoSync: z.boolean(),
   /** Раскатка канона скиллов по домам CLI в часовом обходе. */
   skillsFanOutAuto: z.boolean(),
-  /** Задан ли git-remote синка. Само значение remote сюда не кладём. */
-  skillsSyncRemoteConfigured: z.boolean(),
   /** Язык интерфейса плагина: им же отвечает CLI. */
   lang: z.enum(["ru", "en"]),
   /** Язык страниц плагина: auto следует за BB (Русификатор, Pokecut), ru/en — явно. */
@@ -353,9 +348,6 @@ export const rpcContract = defineRpcContract({
   skills_fanout: {
     input: z.object({ hostId: z.string().nullable(), dryRun: z.boolean().default(false) }),
     output: z.object({
-      synced: z.number(),
-      syncFailed: z.number(),
-      remoteConfigured: z.boolean(),
       applied: z.number(),
       failed: z.number(),
       promoted: z.number(),
@@ -395,15 +387,6 @@ export const rpcContract = defineRpcContract({
     output: z.object({
       ok: z.boolean(),
       message: z.string().max(600).nullable(),
-      overview: overviewSchema,
-    }),
-  },
-  skills_sync: {
-    input: z.object({ hostId: z.string().nullable() }),
-    output: z.object({
-      synced: z.number(),
-      failed: z.number(),
-      errors: z.array(z.string()).max(100),
       overview: overviewSchema,
     }),
   },
@@ -603,7 +586,7 @@ export default async function plugin(bb: BbPluginApi) {
   };
   // The skills canon moved to the BB hub (0.2.9). The machine-canon code below
   // stays for old CLI calls but never runs on its own and never writes.
-  const LEGACY_SKILLS = { fanOutAuto: false, pluginNames: true, syncRemote: "" } as const;
+  const LEGACY_SKILLS = { fanOutAuto: false, pluginNames: true } as const;
   const host = bb.hosts.experimental_client({ contract: hostContract });
   const skillsHub = createSkillsHubService(bb, host as unknown as Parameters<typeof createSkillsHubService>[1], async () => {
     const config = await readConfig();
@@ -1182,7 +1165,6 @@ export default async function plugin(bb: BbPluginApi) {
       probes: await readProbes(),
       autoSync,
       skillsFanOutAuto: LEGACY_SKILLS.fanOutAuto,
-      skillsSyncRemoteConfigured: LEGACY_SKILLS.syncRemote !== "",
       lang: currentLang,
       uiLang: await readUiLangChoice(),
       lastScanAt: (await bb.storage.kv.get<number>("lastScanAt")) ?? null,
@@ -1342,71 +1324,8 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   /**
-   * Синк канона на связанных машинах. Remote не возвращаем и не логируем.
-   * ok:false и исключение host.call оба идут в errors/failed.
-   */
-  async function runSkillsCanonSync(hostId: string | null) {
-    const remote = LEGACY_SKILLS.syncRemote;
-    if (remote === "") {
-      return {
-        remoteConfigured: false,
-        synced: 0,
-        failed: 0,
-        errors: [] as string[],
-        failedHostIds: [] as string[],
-        okHostIds: [] as string[],
-      };
-    }
-    const hostsList = await bb.sdk.hosts.list();
-    const { targets, disconnected } = partitionSkillHosts(hostsList, hostId);
-    const results: { hostId: string; hostName: string; ok: boolean; error: string | null }[] = [];
-    for (const machine of disconnected) {
-      results.push({
-        hostId: machine.id,
-        hostName: machine.name,
-        ok: false,
-        error: disconnectedHostError(),
-      });
-    }
-    for (const machine of targets) {
-      try {
-        const result = await callHostTimed(
-          (timeoutMs) => host.call("skills_sync", { remote }, { hostId: machine.id, timeoutMs }),
-          SKILLS_HOST_CALL_TIMEOUT_MS,
-        );
-        if (result.ok === false) {
-          results.push({
-            hostId: machine.id,
-            hostName: machine.name,
-            ok: false,
-            error: result.error ?? t("ошибка"),
-          });
-        } else {
-          results.push({ hostId: machine.id, hostName: machine.name, ok: true, error: null });
-        }
-      } catch (cause) {
-        results.push({
-          hostId: machine.id,
-          hostName: machine.name,
-          ok: false,
-          error: hostCallFailureReason(cause),
-        });
-      }
-    }
-    const summary = summarizeCanonSync(results);
-    return {
-      remoteConfigured: true,
-      synced: summary.synced,
-      failed: summary.failed,
-      errors: summary.errors.slice(0, 100),
-      failedHostIds: summary.failedHostIds,
-      okHostIds: summary.okHostIds,
-    };
-  }
-
-  /**
    * Newest/new home trees into ~/.agents/skills on the winning machine,
-   * then (when remote is set) git-sync, then lay out CLI homes.
+   * then lay out CLI homes.
    */
   async function runPromoteToCanon(hostId: string | null, dryRun: boolean) {
     const snapshots = await readSkillsSnapshots();
@@ -1479,7 +1398,6 @@ export default async function plugin(bb: BbPluginApi) {
     const hostsList = await bb.sdk.hosts.list();
     const destRoot = bbServerSkillsDir(bb.server.experimental_dataDir);
     const canonRoot = canonSkillsDir();
-    const remote = LEGACY_SKILLS.syncRemote;
     const skipPlugins = !(includePluginNames ?? LEGACY_SKILLS.pluginNames);
     const snapshots = await readSkillsSnapshots();
     const pluginNames = skipPlugins
@@ -1487,22 +1405,6 @@ export default async function plugin(bb: BbPluginApi) {
       : [];
     const skippedByPlugin = pluginNames.slice(0, 500);
     const errors: string[] = [];
-
-    if (remote !== "" && !dryRun) {
-      const gitBin = await resolveGitBin();
-      if (gitBin === null) {
-        errors.push(`${serverLabel}: ${t("git не найден")}`);
-      } else {
-        const sync = await syncSkillsCanon(canonRoot, remote, {
-          gitBin,
-          hostname: osHostname(),
-          fingerprintDir,
-        });
-        if (sync.ok === false) {
-          errors.push(`${serverLabel}: ${t("сервер BB: синк канона не прошёл")}${sync.error ? ` (${sync.error})` : ""}`);
-        }
-      }
-    }
 
     const canonScan = await scanSkillHome("agents", canonRoot);
     const destScan = await scanSkillHome("bb", destRoot);
@@ -1632,33 +1534,19 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   /**
-   * One button / CLI / hourly tick: promote winners into canon, sync git, fan-out.
-   * dry-run does not sync and does not write.
+   * One button / CLI / hourly tick: promote winners into canon, then fan-out.
+   * dry-run does not write.
    */
   async function runSkillsRollout(hostId: string | null, dryRun: boolean, includePluginNames?: boolean) {
     await scanAll(hostId);
     const promote = await runPromoteToCanon(hostId, dryRun);
-    const remoteConfigured = LEGACY_SKILLS.syncRemote !== "";
-    let synced = 0;
-    let syncFailed = 0;
     const errors: string[] = [...promote.errors];
-    let skipHostIds: string[] = [];
-    if (remoteConfigured && !dryRun) {
-      const sync = await runSkillsCanonSync(hostId);
-      synced = sync.synced;
-      syncFailed = sync.failed;
-      errors.push(...sync.errors);
-      skipHostIds = sync.failedHostIds ?? [];
-    }
-    const fan = await runSkillsFanOut(hostId, dryRun, includePluginNames, skipHostIds);
+    const fan = await runSkillsFanOut(hostId, dryRun, includePluginNames);
     errors.push(...fan.errors);
     const server = await runServerBbSkills(dryRun, includePluginNames);
     errors.push(...server.errors);
     const skipped = [...new Set([...fan.skippedByPlugin, ...server.skippedByPlugin])].sort().slice(0, 500);
     return {
-      synced,
-      syncFailed,
-      remoteConfigured,
       promoted: promote.promoted,
       promoteFailed: promote.promoteFailed,
       applied: fan.applied + server.applied,
@@ -2282,13 +2170,6 @@ export default async function plugin(bb: BbPluginApi) {
       if (!result.ok) throw new Error(result.error ?? t("не удалось восстановить снимок"));
       await scanAll(hostId);
       return { ok: true, message: result.message, overview: await publish() };
-    },
-    skills_sync: async ({ hostId }) => {
-      const remote = LEGACY_SKILLS.syncRemote;
-      if (remote === "") throw new Error(t("Синк скиллов выключен: не задан git-remote в настройках плагина"));
-      const result = await runSkillsCanonSync(hostId);
-      await scanAll(hostId, result.failedHostIds);
-      return { synced: result.synced, failed: result.failed, errors: result.errors, overview: await publish() };
     },
     opencode_sync: async ({ sourceHostId, targetHostId, syncProviders, syncModels, syncEnabled, dryRun }) => {
       const result = await runOpenCodeSync({ sourceHostId, targetHostId, syncProviders, syncModels, syncEnabled, dryRun });
@@ -2926,11 +2807,8 @@ export default async function plugin(bb: BbPluginApi) {
             result,
             describeRollout({
               dryRun,
-              remoteConfigured: result.remoteConfigured,
               canonEmpty: current.skillCanon.length === 0,
               notOnAllMachines: countSkillsNotOnAllMachines(current.skillCanon),
-              synced: result.synced,
-              syncFailed: result.syncFailed,
               promoted: result.promoted,
               promoteFailed: result.promoteFailed,
               applied: result.applied,
@@ -2963,18 +2841,6 @@ export default async function plugin(bb: BbPluginApi) {
           await scanAll(hostId);
           await publish();
           return reply(result, result.message ?? t("Снимок восстановлен"));
-        }
-        case "legacy-skills-sync": {
-          const remote = LEGACY_SKILLS.syncRemote;
-          if (remote === "") throw new Error(t("Синк выключен: не задан git-remote (настройка «Скиллы: git-remote канона»)"));
-          const result = await runSkillsCanonSync(hostId);
-          await scanAll(hostId, result.failedHostIds);
-          await publish();
-          return reply(
-            result,
-            tp("Синк скиллов: машин {0}", result.synced) +
-              (result.errors.length === 0 ? "" : `\n${result.errors.join("\n")}`),
-          );
         }
         case "plugins": {
           const current = await overview();

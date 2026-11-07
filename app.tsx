@@ -3291,11 +3291,8 @@ function CatalogPage() {
         const result = await rpc.call("skills_fanout", { hostId: null, dryRun: false });
         const text = describeRollout({
           dryRun: false,
-          remoteConfigured: result.remoteConfigured,
           canonEmpty: result.overview.skillCanon.length === 0,
           notOnAllMachines: countSkillsNotOnAllMachines(result.overview.skillCanon),
-          synced: result.synced,
-          syncFailed: result.syncFailed,
           promoted: result.promoted,
           promoteFailed: result.promoteFailed,
           applied: result.applied,
@@ -3303,7 +3300,7 @@ function CatalogPage() {
           skippedByPlugin: result.skippedByPlugin,
           errors: result.errors,
         });
-        if (result.failed > 0 || result.syncFailed > 0 || result.promoteFailed > 0) {
+        if (result.failed > 0 || result.promoteFailed > 0) {
           alertText = text;
           setNotice(null);
         } else {

@@ -433,14 +433,6 @@ export const hostContract = defineRpcContract({
       message: z.string().max(600).nullable(),
     }),
   },
-  skills_sync: {
-    input: z.object({ remote: z.string().min(1).max(2048) }),
-    output: z.object({
-      ok: z.boolean(),
-      error: z.string().max(2000).nullable(),
-      message: z.string().max(2000).nullable(),
-    }),
-  },
   /** Pack one canon skill so the BB server process can write dataDir/skills. */
   skills_archive: {
     input: z.object({ name: z.string().min(1).max(120) }),
