@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "lanePilotRunId": "lprun_97ea6400faf6456c86004d61fbf10317",
+  "lanePilotTaskId": "hub-only-keep-broken-skills-v3",
+  "attemptId": "lpattempt_3a2df7840d0a48eda4225ad4dc1df258",
+  "pmThreadId": "thr_id8yvdhqvv",
+  "writerThreadId": "thr_9wrscdasks",
+  "ownsPaths": [
+    "hub-only.ts",
+    "skills-hub-service.ts",
+    "settings-page.tsx",
+    "i18n.en.ts",
+    "tests/hub-only.test.ts",
+    "tests/hub-only-broken.test.ts",
+    "package.json",
+    "CHANGELOG.md"
+  ],
+  "readFirst": [
+    {
+      "path": "hub-only.ts",
+      "windows": []
+    },
+    {
+      "path": "skills-hub-service.ts",
+      "windows": []
+    },
+    {
+      "path": "hub-skills.ts",
+      "windows": []
+    },
+    {
+      "path": "skill-meta.ts",
+      "windows": []
+    },
+    {
+      "path": "settings-page.tsx",
+      "windows": []
+    },
+    {
+      "path": "tests/hub-only.test.ts",
+      "windows": []
+    },
+    {
+      "path": "i18n.en.ts",
+      "windows": []
+    },
+    {
+      "path": "package.json",
+      "windows": []
+    },
+    {
+      "path": "CHANGELOG.md",
+      "windows": []
+    }
+  ],
+  "output": "Режим «только на хабе» больше не считает сломанный навык уже лежащим на хабе и не архивирует машину, пока BB его не загружает.\n\n`loadableHubNames` берёт только навыки без `blocking: true` (нет `problems` — как будто проблем нет). `machineNotOnHub` сравнивает копии на машине с этим набором. `refreshMachines` (через `scanMachineSkills`), `importFromMachine` и `view()` переведены на эти помощники.\n\n`enforceHubOnly` при blocking-отказе не вызывает `cleanup`: навык попадает в `rejected` с текстом проблемы, `skipped` выглядит как `BB не загружает: browser-qa (frontmatter-yaml: …)`. Сбой без blocking тоже оставляет машину.\n\nПроверки: `tests/hub-only-broken.test.ts` (3 кейса), в `tests/hub-only.test.ts` у машины `a` с навыком `y` ожидание сменено на отсутствие cleanup. Версия `0.2.30`. Команды контракта завершились с кодом 0: тесты, `/tmp/hub-only-broken-check/check.mjs` (`hub-only broken check: ok`), `npx tsc --noEmit`.\n\nИзменённые пути: `hub-only.ts`, `skills-hub-service.ts`, `settings-page.tsx`, `tests/hub-only.test.ts`, `tests/hub-only-broken.test.ts`, `package.json`, `CHANGELOG.md`.\n\nGitNexus `impact` на этом индексе не нашёл `enforceHubOnly` (индекс отстаёт на 10 коммитов). Вызывающих подтвердил grep: `skills-hub-service.ts`, `tests/hub-only.test.ts`.\n\n```plan-fact\n[\n  {\"item\":1,\"status\":\"done\",\"evidence\":[\"cmd:node --experimental-strip-types /tmp/hub-only-broken-check/check.mjs\",\"hub-only.ts:88-107\"]},\n  {\"item\":2,\"status\":\"done\",\"evidence\":[\"hub-only.ts:46-57\",\"skills-hub-service.ts:967-971\",\"skills-hub-service.ts:1075-1078\",\"skills-hub-service.ts:1161-1162\"]},\n  {\"item\":3,\"status\":\"done\",\"evidence\":[\"hub-only.ts:88-107\",\"tests/hub-only-broken.test.ts:29-38\"]},\n  {\"item\":4,\"status\":\"done\",\"evidence\":[\"tests/hub-only-broken.test.ts:29-59\",\"tests/hub-only.test.ts:62-67\",\"tests/hub-only.test.ts:114-115\"]},\n  {\"item\":5,\"status\":\"done\",\"evidence\":[\"package.json:3\",\"CHANGELOG.md:5-7\"]}\n]\n```\n\nAPPROACH: Count only hub skills without blocking problems as present; skip cleanup whenever import is refused or fails, and put the blocking skill in `rejected`/`skipped`.\nLESSON: Put behaviour that the old suite encoded as “cleanup after blocking reject” in `test_removals` plus a new test file, or test_fit treats the corrected asserts as a broken check.",
+  "verification": [
+    {
+      "command": "node --experimental-strip-types --test tests/hub-only-broken.test.ts",
+      "exitCode": 0,
+      "stdout": "✔ blocking rejection keeps the machine and names the skill (1.81675ms)\r\n✔ machineNotOnHub lists a skill whose hub copy has a blocking problem (0.099917ms)\r\n✔ loadableHubNames keeps non-blocking problems and a missing problems field (0.058375ms)\r\nℹ tests 3\r\nℹ suites 0\r\nℹ pass 3\r\nℹ fail 0\r\nℹ cancelled 0\r\nℹ skipped 0\r\nℹ todo 0\r\nℹ duration_ms 131.632958\r\n",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "bb5e0079af06a4eb4af58424e8877fb90e2e1733e521f26ad93735d17f89c140",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_3a2df7840d0a48eda4225ad4dc1df258/bb-plugin-agent-tools",
+      "timeoutSec": 300,
+      "revision": {
+        "head": "3d30a2e966cc7048245d28913139a7e382719842",
+        "dirty": 7
+      }
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/hub-only-broken-check/check.mjs",
+      "exitCode": 0,
+      "stdout": "hub-only broken check: ok\r\n",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "a32f2827668a60637592d75198a186764d42130094aef38b121622439397a3ea",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_3a2df7840d0a48eda4225ad4dc1df258/bb-plugin-agent-tools",
+      "timeoutSec": 120,
+      "revision": {
+        "head": "3d30a2e966cc7048245d28913139a7e382719842",
+        "dirty": 7
+      }
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "stdout": "\\\u001b[1G\u001b[0K\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m New \u001b[31mmajor\u001b[39m version of npm available! \u001b[31m11.16.0\u001b[39m -> \u001b[34m12.2.2\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m Changelog: \u001b[34mhttps://github.com/npm/cli/releases/tag/v12.2.2\u001b[39m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m To update run: \u001b[4mnpm install -g npm@12.2.2\u001b[24m\r\n\u001b[1mnpm\u001b[22m \u001b[96mnotice\u001b[39m\r\n\\\u001b[1G\u001b[0K",
+      "stderr": "",
+      "sandboxBackend": "macos-seatbelt",
+      "policySha256": "dd5d325f6fbd33b89008d11ebd88b1e67decce9f4b903997f7cb1a06a48f56cc",
+      "workspacePath": "/Users/vechkasov/.lane-pilot/worktrees/lpattempt_3a2df7840d0a48eda4225ad4dc1df258/bb-plugin-agent-tools",
+      "timeoutSec": 300,
+      "revision": {
+        "head": "3d30a2e966cc7048245d28913139a7e382719842",
+        "dirty": 7
+      }
+    }
+  ],
+  "runV2": {
+    "schemaVersion": 1,
+    "pools": {
+      "provider": 15,
+      "verification": 2
+    },
+    "score": 5,
+    "risk": "medium",
+    "sourceRisk": "medium",
+    "scoreAdapter": "task-risk-v1"
+  },
+  "reasoning": [
+    {
+      "planSha256": "7a0d0c1ea8e197e8177869fe71e3dcc90e979c678cb06a1257757c0c439b5c8a",
+      "sentPlanSha256": null,
+      "sourceLength": 4203,
+      "sentLength": null,
+      "jevStatus": "disabled",
+      "jevDecision": null,
+      "requestedReasoningLevel": "medium",
+      "effectiveReasoningLevel": "medium",
+      "fallbackReason": "jev_disabled;jev_disabled_by_project_setting",
+      "retryEffort": {
+        "enabled": false,
+        "retryIndex": 0,
+        "before": "medium",
+        "after": "medium",
+        "changed": false
+      },
+      "providerId": "acp-cursor",
+      "model": "grok-4.6",
+      "serviceTier": "fast",
+      "requestedServiceTier": "fast",
+      "runId": "lprun_97ea6400faf6456c86004d61fbf10317",
+      "attemptId": "lpattempt_3a2df7840d0a48eda4225ad4dc1df258",
+      "threadId": "thr_9wrscdasks",
+      "effortMode": "manual",
+      "selectionSource": {
+        "providerId": "acp-cursor",
+        "model": "grok-4.6",
+        "reasoningLevel": "medium",
+        "serviceTier": "fast",
+        "reasoningLevelSource": "explicit"
+      },
+      "dispatchContext": {
+        "memoryText": "Area «skills-settings»: earlier accepted tasks, newest first. Their decisions are in main; keep them unless this task changes them.\n- 2026-11-06T01:16 skills-hub-canon-marker: Recognise the hub skills canon by a token marker, not by its path. The previous task protects the hub canon by its absolute path. The BB hub runs on a Mac with the same user as the owner's other Macs, so /Users/vechkasov/.bb/skills exists on several machines and only the hub's one is the canon: path protection would keep the plain copies in ~/.bb/skills on the other Macs forever. Recognise the canon by a marker file holding a server token instead.\n- 2026-11-05T23:34 ui-language-switch: Interface language switch in Settings (auto / Russian / English), Russifier-aware auto. Agent Tools shows English to a Russian owner because it reads only <html lang>, which the Russifier leaves as en, and Settings has no language choice. Add a language setting («Как в BB» / Русский / English) at the top of Settings, stored on the server, applied at once to the whole plugin page; «Как в BB» detects the Russifier and the Pokecut data-pk-lang.\n- 2026-11-05T21:21 skills-hub-only-mode: Experimental 'skills only on the hub' mode replaces the 'offer to remove copies' switch. Add an experimental, off-by-default mode in Agent Tools that keeps the CLI skill folders on every machine empty: each hourly sweep imports to the hub the skills it lacks, then archives the copies on that machine, so sessions get skills only from the BB hub. The mode takes the place of the existing «Предлагать убрать копии» switch; the hub canon folder is protected on the hub host.\nFiles of this area: CHANGELOG.md, contract.ts, package.json, skills-hub-service.ts, app.tsx, i18n.en.ts, i18n.ts, server.ts, settings-page.tsx, tests/ui-lang.test.ts, app.css, host-skills.ts, host.ts, hub-only.ts, tests/host-skills.test.ts, tests/hub-only.test.ts",
+        "memoryPicked": [],
+        "rulesText": "- In verification scripts and tests that create temp dirs, use /tmp explicitly (mktemp -d /tmp/x.XXXXXX, or TMPDIR=/tmp): the writer sandbox denies mkdtemp in the system TMPDIR under /var/folders. Keep PM-written check scripts in /tmp/<name>/ (the guard blocks .mjs under .agents/).\n- In a folder without git (live-folder mode), never put a task's expected_outputs or owns_paths under .bb/ (chat folders): the live snapshot skips .bb, so a file written there is never counted as produced and the task blocks as missing expected_outputs. Put task deliverables in a project folder such as docs/ or reports/.\n- Правя тестовый файл из owns_paths, меняй только ожидаемые значения внутри существующих строгих assert (deepEqual/equal) и добавляй новые проверки рядом — не удаляй строки assert и не ослабляй строгую проверку до assert.ok/includes/truthiness; перед ответом перечитай свой diff по тестам и верни всё, что стало слабее: test_fit помечает это как сломанную проверку, и попытки сгорают до лимита.\n- In muse-ai-connector, every check script or test that imports bridge/ modules must set MUSE_BRIDGE_HOME to a fresh mkdtemp under /tmp before the import; never let a check write into the real ~/.muse-bridge (accounts, cookies, cache).\n- Never identify the BB hub's skills canon by its absolute path: the hub's skills root is /Users/vechkasov/.bb/skills on a Mac, and the owner's other Macs have the same user and the same path with plain copies. Identify the canon by a marker file with a server token (or another per-machine fact), and check `bb skill list --json` filePath before trusting any doc that names the hub path.\n- Never send a fresh agent job (rebuild, regenerate, redo) into an existing long agent thread: its prompt cache is cold and the next turn re-bills the whole history. Start a new session with a kickoff that loads the needed state through tools, and archive the old thread.",
+        "rulesPicked": {
+          "total": 34,
+          "picked": [
+            "rule_501a857c9b1bd60a",
+            "rule_df3e34f2aef5a993",
+            "rule_af70160574711f7e",
+            "rule_93325eb4e64a63d7",
+            "rule_97c9b46cb3db39fb",
+            "rule_04b200537ecc1e67"
+          ]
+        },
+        "executionPacket": "Read these before editing; they are the context for this task:\n- hub-only.ts L1-L100 (sha256 d65ef7f7)\n- skills-hub-service.ts L1-L1622 (sha256 7778094d)",
+        "executionPacketSha256": "94523b12add433ad73060a33b13221d49f7f7acc8b0c674e6287f3d7ed5c232c",
+        "pmReadContext": "{\"summary\":\"This briefing analyzes the provided host-read packet and task brief regarding incident loop:topic:8d0f97f5fa64, where hub-only mode erroneously archived skills from a machine that BB could not load due to frontmatter YAML defects on the hub copies. In the current implementation of hub-only.ts, enforceHubOnly processes skills not on the hub via deps.importSkill. When an import fails with blocking problems (blocking: true), it records the skill in entry.rejected, but if there are no transient failures (transient.length === 0), it still invokes deps.cleanup(host.hostId). The module docstring explicitly describes this old behavior. The task objective requires changing this logic so that any skill refused with a blocking problem prevents machine cleanup, records the refusal in entry.rejected with problem details, and sets entry.skipped with the specific refusal description (e.g., 'BB не загружает: ...'). In addition, helper functions loadableHubNames (filtering out hub skills with blocking problems) and machineNotOnHub (identifying machine skills missing from loadable hub skills) must be integrated into skills-hub-service.ts across refreshMachines, importFromMachine, and view(). However, the provided excerpt of skills-hub-service.ts is truncated after line 496, omitting lines 497-1622 where these functions reside, and the other target/read-first files (hub-skills.ts, skill-meta.ts, settings-page.tsx, tests/hub-only.test.ts, i18n.en.ts, package.json, CHANGELOG.md) are not included in the packet.\",\"keyFacts\":[\"hub-only.ts (L4-6): The module docstring specifies that a machine is cleaned when every import either succeeded or was refused with a blocking problem because BB would not load such a skill anyway.\",\"hub-only.ts (L29-39): HubOnlyReport defines entries containing imported: string[], rejected: Array<{ name: string; reason: string }>, skipped: string | null, and cleanup object or null.\",\"hub-only.ts (L62-81): Current enforceHubOnly implementation only checks transient.length > 0 to set entry.skipped; if transient.length === 0, it calls deps.cleanup(host.hostId) even if blocking rejections were added to entry.rejected.\",\"hub-only.ts (L55-61): A skill import failure with blocking problems filters result.problems for problem.blocking and appends to entry.rejected with details or result.error.\",\"hub-only.ts (L18-24): deps.importSkill returns a Promise with ok: boolean, error: string | null, and problems: Array<{ code: string; detail: string; blocking: boolean }>.\",\"skills-hub-service.ts (L63): problemSchema validates objects with code: z.string(), detail: z.string(), and blocking: z.boolean().\",\"skills-hub-service.ts (L76-98): hubSkillViewSchema defines hub skills with name, description, bytes, files, mtime, problems: z.array(problemSchema), category, and review fields.\",\"skills-hub-service.ts (L102-109): machineHomesSchema defines hostId, hostName, homes, notOnHub: z.array(foundSkillSchema), error, and at timestamp.\",\"skills-hub-service.ts (L139-160): skillsSettingsSchema defines hubOnly: z.boolean() and hubOnlyLast recording at, imported, moved, rejected, and skipped: z.array(z.object({ hostName, reason })).\",\"skills-hub-service.ts (L1-496): The host-read packet contains imports, Zod schemas, KV definitions, and classifier setup, but cuts off at line 496 before reaching refreshMachines, importFromMachine, or view().\"],\"openQuestions\":[\"What are the existing implementations and signatures of refreshMachines, importFromMachine, and view() in skills-hub-service.ts (lines 497-1622 are truncated)?\",\"Where in skills-hub-service.ts (or adjacent modules) should loadableHubNames and machineNotOnHub be placed and exported?\",\"What is the exact phrasing and i18n requirement for the entry.skipped string in enforceHubOnly when a blocking rejection occurs (e.g., raw text vs t() helper)?\",\"What does tests/hub-only.test.ts currently contain, and how is machine 'a' with a blocking-rejected skill defined in the test case that needs updating?\",\"What exact assertions are evaluated by /tmp/hub-only-broken-check/check.mjs?\",\"What changes, if any, are required in settings-page.tsx and i18n.en.ts for displaying skipped reasons or updated hub-only status?\",\"Are loadableHubNames and machineNotOnHub expected to handle null or undefined problems properties defensively, and what default structure does listHubSkills return?\"]}",
+        "agent": "Lane Pilot writer",
+        "promptChars": 15658,
+        "helperMode": "roles",
+        "helperRequired": false,
+        "skillPick": {
+          "enabled": true,
+          "skills": [
+            "agent-tools"
+          ],
+          "picked": [],
+          "craft": [],
+          "projectFolder": [
+            "agent-tools"
+          ],
+          "hints": [],
+          "sources": {
+            "agent-tools": "/Users/vechkasov/.bb/plugins/cache/git/github.com/VKirill/bb-plugin-agent-tools/01e93fc4b2d8fe7ba5f106d2afa6b6e037506646/skills/agent-tools"
+          },
+          "reason": null,
+          "materialized": []
+        },
+        "writerKey": "acp-cursor/grok-4.6",
+        "harness": {
+          "id": "hrn_b2001b2e563498d3",
+          "arm": null,
+          "alwaysOnChars": 0,
+          "skills": [],
+          "checks": [],
+          "materialize": null
+        }
+      }
+    }
+  ],
+  "emergencyFallback": null,
+  "warnings": [
+    "the writer changed tests that existed before the attempt (reference tests): tests/hub-only.test.ts — the code critic reviews them in gate mode"
+  ],
+  "turns": 1
+}

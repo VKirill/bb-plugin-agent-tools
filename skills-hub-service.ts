@@ -51,7 +51,7 @@ import {
   type CardJob,
 } from "./skill-suggest/card-writer.ts";
 import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
-import { enforceHubOnly, type HubOnlyReport } from "./hub-only.ts";
+import { enforceHubOnly, loadableHubNames, machineNotOnHub, type HubOnlyReport } from "./hub-only.ts";
 import { CANON_MARKER, type ProtectEntry } from "./host-skills.ts";
 import { createHttpJevClient } from "./skill-suggest/jev.ts";
 import { SkillDispatchInjector, type DispatchContext, type QueuedRow } from "./skill-suggest/dispatch.ts";
@@ -964,10 +964,10 @@ export function createSkillsHubService(
         homes: MachineHomes["homes"];
         found?: MachineHomes["notOnHub"];
       };
-      const onHub = new Set((await hubSkills()).map((skill) => skill.name));
+      const hub = await hubSkills();
       return {
         homes: homes.homes,
-        notOnHub: (homes.found ?? []).filter((skill) => !onHub.has(skill.name)),
+        notOnHub: machineNotOnHub(homes.found ?? [], hub),
         error: null,
       };
     } catch (cause) {
@@ -1074,7 +1074,7 @@ export function createSkillsHubService(
       offerCleanup: config.hubOnly,
       machines: (machines ?? []).map((machine) => ({
         ...machine,
-        notOnHub: (machine.notOnHub ?? []).filter((skill) => !skills.some((item) => item.name === skill.name)),
+        notOnHub: machineNotOnHub(machine.notOnHub ?? [], skills),
       })),
     };
   }
@@ -1158,7 +1158,7 @@ export function createSkillsHubService(
     const machines = (await bb.storage.kv.get<MachineHomes[]>(KV.machines)) ?? (await refreshMachines());
     const machine = machines.find((item) => item.hostId === hostId);
     if (machine === undefined) throw new Error("unknown machine; refresh the machines first");
-    const onHub = new Set((await hubSkills(true)).map((skill) => skill.name));
+    const onHub = loadableHubNames(await hubSkills(true));
     const todo = (machine.notOnHub ?? []).filter((skill) => !onHub.has(skill.name) && (names === null || names.includes(skill.name)));
     const results: Array<{ name: string; ok: boolean; error: string | null; problems: Array<{ code: string; detail: string; blocking: boolean }> }> = [];
     for (const skill of todo) {

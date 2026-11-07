@@ -59,12 +59,12 @@ function deps(overrides: Partial<HubOnlyDeps> = {}): HubOnlyDeps & { cleaned: st
 test("imports what the hub lacks, rejects blocking problems, cleans only safe machines", async () => {
   const d = deps();
   const report = await enforceHubOnly(d);
-  assert.deepEqual(d.cleaned, ["a"], "only machine A may be cleaned");
+  assert.deepEqual(d.cleaned, [], "a machine with a blocking-rejected skill is not cleaned");
   const byHost = Object.fromEntries(report.map((row) => [row.hostId, row]));
   assert.deepEqual(byHost.a.imported, ["x"]);
   assert.deepEqual(byHost.a.rejected.map((row) => row.name), ["y"]);
-  assert.equal(byHost.a.skipped, null);
-  assert.ok(byHost.a.cleanup !== null && byHost.a.cleanup.backup === "/backup/a");
+  assert.match(String(byHost.a.skipped), /y/);
+  assert.equal(byHost.a.cleanup, null);
   assert.equal(byHost.b.cleanup, null);
   assert.match(String(byHost.b.skipped), /z/);
   assert.match(String(byHost.b.skipped), /git push failed/);
@@ -112,5 +112,5 @@ test("a rejected skill names its blocking reasons", async () => {
   });
   const report: HubOnlyReport = await enforceHubOnly(d);
   assert.deepEqual(report[0]!.rejected, [{ name: "y", reason: "no name" }]);
-  assert.deepEqual(d.cleaned, ["a"]);
+  assert.deepEqual(d.cleaned, []);
 });
