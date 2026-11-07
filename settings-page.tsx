@@ -266,7 +266,7 @@ export function SettingsPage() {
             />
           </Field>
           {settings.hubOnlyLast === null ? null : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground" style={{ overflowWrap: "anywhere" }}>
               {tp(
                 "Последний прогон: {0} · перенесено {1} · убрано {2} · отклонено {3}",
                 new Date(settings.hubOnlyLast.at).toLocaleString(getLang() === "ru" ? "ru-RU" : "en-US", {
