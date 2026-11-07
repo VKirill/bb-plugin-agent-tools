@@ -72,7 +72,14 @@ export async function runGit(
   // autocrlf=false keeps the shared canon byte-identical across platforms (Windows git defaults to true).
   return execFileOutput(bin, ["-c", "core.autocrlf=false", ...args], {
     maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      LC_ALL: "C",
+      LC_MESSAGES: "C",
+      LANG: "C",
+      LANGUAGE: "C",
+    },
   });
 }
 
