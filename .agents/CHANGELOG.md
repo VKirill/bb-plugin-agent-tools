@@ -1,3 +1,4 @@
 # Changelog
 
 - 2026-11-06 lprun_97ea6400faf6456c86004d61fbf10317: Recognise the hub skills canon by a token marker, not by its path; Experimental 'skills only on the hub' mode replaces the 'offer to remove copies' switch; Interface language switch in Settings (auto / Russian / English), Russifier-aware auto (skills-hub-canon-marker, skills-hub-only-mode, ui-language-switch)
+- 2026-11-07 lprun_97ea6400faf6456c86004d61fbf10317: Hub-only mode never archives a skill BB cannot load; Recognise the hub skills canon by a token marker, not by its path; Experimental 'skills only on the hub' mode replaces the 'offer to remove copies' switch; Interface language switch in Settings (auto / Russian / English), Russifier-aware auto (hub-only-keep-broken-skills-v3, skills-hub-canon-marker, skills-hub-only-mode, ui-language-switch)
