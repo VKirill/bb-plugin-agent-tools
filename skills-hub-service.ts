@@ -37,6 +37,7 @@ import {
   type HubSkill,
 } from "./hub-skills.ts";
 import { skillBodyExcerpt } from "./skill-meta.ts";
+import { oneShotPluginNeed, requiredSessionPolicySpawnField } from "./required-session-policy.ts";
 import { bbServerSkillsDir } from "./skills-server.ts";
 import { getLang, isUiLangChoice, t, tp } from "./i18n.ts";
 import {
@@ -400,6 +401,11 @@ export function createSkillsHubService(
       title,
       pluginMetadata: { role },
       prompt,
+      ...requiredSessionPolicySpawnField(
+        bb.agents,
+        config.classifierProvider,
+        oneShotPluginNeed(bb.pluginId),
+      ),
     } as Parameters<typeof bb.sdk.threads.spawn>[0])) as { id?: string; thread?: { id: string } };
     const id = result.thread?.id ?? result.id;
     if (id === undefined) throw new Error("BB did not return the hidden thread id");
