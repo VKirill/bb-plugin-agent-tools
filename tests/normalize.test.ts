@@ -48,15 +48,15 @@ test("grok-toml dialect uses url/headers for remote servers and command/args/env
     enabled: true,
   });
 
-  const stdio = fromDialect("grok-toml", "agentmemory", {
-    command: "/home/ubuntu/.npm-global/bin/agentmemory-mcp",
+  const stdio = fromDialect("grok-toml", "sample-memory", {
+    command: "/home/ubuntu/.npm-global/bin/sample-memory-mcp",
     args: [],
-    env: { AGENTMEMORY_URL: "http://127.0.0.1:3111" },
+    env: { SAMPLE_MEMORY_URL: "http://127.0.0.1:3111" },
   })!;
   assert.equal(stdio.transport, "stdio");
   assert.deepEqual(toDialect("grok-toml", stdio), {
-    command: "/home/ubuntu/.npm-global/bin/agentmemory-mcp",
-    env: { AGENTMEMORY_URL: "http://127.0.0.1:3111" },
+    command: "/home/ubuntu/.npm-global/bin/sample-memory-mcp",
+    env: { SAMPLE_MEMORY_URL: "http://127.0.0.1:3111" },
     enabled: true,
   });
 });
