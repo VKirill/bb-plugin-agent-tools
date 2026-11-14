@@ -2,8 +2,9 @@
 title: Skill suggestion through Jev
 type: component
 created: 2026-11-03
-updated: 2026-11-03
-status: shadow
+updated: 2026-11-14
+status: active
+confidence: medium
 tags: [skills, jev, typesafe, routing]
 sources:
   - skill-suggest/suggest.ts
@@ -13,39 +14,40 @@ sources:
   - skill-suggest/log.ts
   - skill-suggest/dispatch.ts
   - skills-hub-service.ts
+  - required-session-policy.ts
 ---
 # Skill suggestion through Jev
 
 BB puts every skill's description and path into each session (hundreds of lines). This feature
 picks at most one hub skill per user message with TypeSafe's System One model Jev, so an agent can
-get one relevant line instead of the whole list. It ports TypeSafe's
+get one relevant line instead of the whole list (`skill-suggest/suggest.ts:260-296`, `skill-suggest/dispatch.ts:80-150`). It ports TypeSafe's
 [Skill suggestion cookbook](https://docs.typesafe.ai/cookbooks/skill_suggestion.md) with three changes
 measured on real BB traffic.
 
-## Pipeline
+## How it works
 
 1. **Routing cards.** One English card per hub skill: `does`, `not_for`, `neighbors` (how it differs
-   from the closest skills, by name), `examples`, `triggers_ru`. A hidden thread
-   (`agent-tools-card-writer`, provider/model of the skill classifier) writes them in batches of 10
-   through `agent_tools_skill_card_save`; a card is stale when the SKILL.md hash changes. A
-   `metadata.jev` block in SKILL.md frontmatter overrides the generated card.
+   from the closest skills, by name), `examples`, `triggers_ru` (`skill-suggest/cards.ts:5-38`). A hidden thread
+   (`agent-tools-card-writer`, provider/model of the skill classifier, spawned through `spawnHidden` with `requiredSessionPolicySpawnField` when advertised by core) writes them in batches of 10
+   through `agent_tools_skill_card_save`; a card is stale when the SKILL.md hash changes (`skill-suggest/card-writer.ts:10-12`, `skills-hub-service.ts:392-413`, `required-session-policy.ts:73-103`). A
+   `metadata.jev` block in SKILL.md frontmatter overrides the generated card (`skill-suggest/cards.ts:68-83`).
 2. **Pass 1** (one request): the roster in code-point order, split into Choice questions of at most 200
    options (Jev accepts 255), each option described by `card.does`; three gate Nouls. Shortlist: top 3
-   of each chunk.
+   of each chunk (`skill-suggest/suggest.ts:5-20`, `skill-suggest/suggest.ts:124-210`).
 3. **Pass 2** (one request): a Choice over the shortlist with full cards, plus one `fits::<name>` Noul
-   per candidate.
+   per candidate (`skill-suggest/suggest.ts:211-259`, `skill-suggest/cards.ts:50-58`).
 4. **Decision:** suggest the pass-2 winner when the gate mean ≥ 0.6 and the best `fits` ≥ 0.5, unless
    it was already suggested in the same thread in the last 6 h (per-thread memory in the plugin plus the
-   log after a restart). The hint also tells the agent not to reload a skill it already loaded. Errors fail open (no suggestion).
+   log after a restart) (`skill-suggest/suggest.ts:20`, `skill-suggest/suggest.ts:260-296`, `skill-suggest/log.ts:19-35`). The hint also tells the agent not to reload a skill it already loaded (`skill-suggest/suggest.ts:325-334`). Errors fail open (no suggestion) (`skill-suggest/suggest.ts:260-296`).
 
 State sent to Jev: `request` (the message, 2000 chars) and `recent_context` (previous user message,
-600 chars, and the tail of the agent's last reply, 900 chars). Payload keys are sorted at every level:
-Jev's answers depend on question order, and the thresholds were measured on sorted payloads.
+600 chars, and the tail of the agent's last reply, 900 chars) (`skill-suggest/suggest.ts:115-123`). Payload keys are sorted at every level:
+Jev's answers depend on question order, and the thresholds were measured on sorted payloads (`skill-suggest/jev.ts:74-85`).
 
 ### Gate questions
 
 The cookbook's gates ("acts on the user's files…") open on nearly every turn of a coding agent. The
-gates here ask whether a new procedure is needed:
+gates here ask whether a new procedure is needed (`skill-suggest/suggest.ts:11-19`):
 
 | key | question | inverted |
 |---|---|---|

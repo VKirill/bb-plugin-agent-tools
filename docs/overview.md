@@ -2,7 +2,7 @@
 title: Agent Tools overview
 type: overview
 created: 2026-09-27
-updated: 2026-10-28
+updated: 2026-11-14
 status: active
 confidence: medium
 tags: [bb-plugin, mcp, agent-skills]
@@ -19,15 +19,17 @@ sources:
   - tsconfig.json
   - AGENTS.md
   - settings-page.tsx
+  - host-skills.ts
+  - hub-only.ts
 ---
 # Agent Tools overview
-Agent Tools is a BB plugin that inventories MCP servers, CLI plugins, and agent skills on enrolled BB machines, then provides explicit operations to reconcile those resources (`server.ts:479-525`, `host.ts:783-785`).
+Agent Tools is a BB plugin that inventories MCP servers, CLI plugins, and agent skills on enrolled BB machines, then provides explicit operations to reconcile those resources (`server.ts:477-595`, `host.ts:789-826`).
 
 ## What it is
 
-The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:479-525`, `server.ts:2044-2255`, `server.ts:2343-2346`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:783-785`, `host.ts:785-817`).
+The plugin has a server entry, a trusted host entry, and a UI entry declared by its package manifest (`package.json:20-38`). The server collects machine scans, computes catalogue and skill drift, persists plugin state through BB key-value storage, and exposes BB RPC and CLI operations (`server.ts:477-627`, `server.ts:2043-2253`, `server.ts:2350-2954`). The host entry runs on each enrolled machine and reads or writes local CLI configuration and skill directories (`host.ts:789-826`, `host-skills.ts:113-259`).
 
-The main areas are the MCP catalogue and sync, BB hub skill management, OpenCode configuration comparison, CLI plugin inventory, and skill classifier settings (`app.tsx:919-941`, `app.tsx:3551-3558`, `settings-page.tsx:100-199`). The plugin supports Russian and English UI and CLI text. UI labels are translated during render using BB’s document locale (`ru*` → Russian, otherwise English); CLI language remains a saved choice (`app.tsx:114-119`, `app.tsx:325-332`, `app.tsx:431-451`, `i18n.ts:8-69`, `i18n.en.ts:4-63`).
+The main areas are the MCP catalogue and sync, BB hub skill management (including experimental `hubOnly` enforcement), OpenCode configuration comparison, CLI plugin inventory, and Settings (`app.tsx:900-960`, `app.tsx:3520-3580`, `settings-page.tsx:130-289`). The plugin supports Russian and English UI and CLI text: CLI and server text read KV `"lang"`, while the UI resolves `uiLang` (`auto | ru | en`) through `resolveUiLang` / `applyUiLang` (`app.tsx:100-165`, `settings-page.tsx:130-162`, `i18n.ts:6-130`, `i18n.en.ts:4-63`).
 
 ## Stack
 
