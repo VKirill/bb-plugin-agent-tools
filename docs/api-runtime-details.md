@@ -2,13 +2,15 @@
 title: Plugin and hub runtime function details
 type: component
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-14
 status: active
-confidence: high
+confidence: medium
 tags: [runtime, rpc, skills, initialization]
 sources:
   - server.ts
   - skills-hub-service.ts
+  - hub-only.ts
+  - required-session-policy.ts
   - skills-page.tsx
   - settings-page.tsx
   - hub-skills.ts
@@ -24,89 +26,90 @@ Detailed RPC and page overview: [Plugin RPC and Skills page runtime](api-runtime
 
 ### How it works
 
-1. Read `lang` from BB KV; keep `ru` or `en`, otherwise choose English, then set the shared language (`server.ts:484-490`).
-2. Define MetaMCP and skill-classifier settings. `readConfig` calls `settings.get()` on demand; the legacy machine-canon options are constants rather than settings (`server.ts:492-548`).
-3. Create the host RPC client and skills-hub service with a live settings reader and a saver using `settings.experimental_set` (`server.ts:545-561`). Blank provider uses `claude-code`; blank model is omitted when spawning a thread so BB selects its default (`server.ts:550-561`, `skills-hub-service.ts:350-365`).
-4. Register agent configuration. A thread carrying classifier role metadata gets the category tools and instructions; other threads receive the `agent-tools` skill (`server.ts:564-568`, `skills-hub-service.ts:435-442`).
-5. Define catalogue readers and state defaults, then register the RPC contract with hub handlers and main handlers (`server.ts:571-589`, `server.ts:2088-2115`).
+1. Read `lang` from BB KV; keep `ru` or `en`, otherwise choose English, then set the shared language (`server.ts:479-484`).
+2. Define MetaMCP, skill-classifier, experimental `skillsHubOnly`, and skill-suggest settings. `readConfig` calls `settings.get()` on demand, and `readUiLangChoice` reads `"uiLang"` from KV (`server.ts:485-589`).
+3. Create the host RPC client and skills-hub service with a live settings reader and a saver using `settings.experimental_set` (`server.ts:590-609`). Blank provider uses `claude-code`; blank model is omitted when spawning a thread so BB selects its default (`server.ts:593-606`, `skills-hub-service.ts:392-409`).
+4. Register agent configuration. A hidden thread carrying classifier or card-writer role metadata gets its role tools/instructions with no skills; other threads receive public tools (when enabled) and the `agent-tools` skill (`server.ts:612-616`, `skills-hub-service.ts:894-925`).
+5. Define catalogue readers and state defaults, then register the RPC contract with hub handlers and main handlers (`server.ts:619-627`, `server.ts:2043-2253`).
 
 | Condition | Outcome | Failure |
 |---|---|---|
-| KV language is `ru` or `en` | Use that language before declaring labels (`server.ts:488-490`). | The awaited KV read has no local catch and rejects initialization. |
-| KV language is absent or unsupported | Use English (`server.ts:488-490`). | No language fallback error is returned. |
-| Classifier metadata matches | Supply classifier tools/instructions and no plugin skill; otherwise supply the plugin skill (`server.ts:564-568`). | A classifier setup failure is not caught by this callback. |
-| Initial service recovery or machine refresh fails | Log a warning; service initialization continues (`skills-hub-service.ts:390-398`, `skills-hub-service.ts:612-615`). | Settings reads made later by the service can reject the requesting RPC. |
+| KV language is `ru` or `en` | Use that language before declaring labels (`server.ts:481-484`). | The awaited KV read has no local catch and rejects initialization. |
+| KV language is absent or unsupported | Use English (`server.ts:481-484`). | No language fallback error is returned. |
+| Hidden thread role metadata matches | Supply role tools/instructions and no plugin skill, plus `requiredSessionPolicySpawnField` on spawn (`server.ts:612-616`, `skills-hub-service.ts:404-408`, `required-session-policy.ts:73-103`). | A setup failure propagates to the requesting operation. |
+| Initial service recovery or startup canon stamp fails | Log recovery warning or swallow startup stamp rejection; initialization continues (`skills-hub-service.ts:464-470`, `skills-hub-service.ts:1586-1588`). | Settings reads made later by the service can reject the requesting RPC. |
 
-The plugin entry has no catch around language read, settings definition, host-client creation, or classifier-agent configuration (`server.ts:484-568`).
+The plugin entry has no catch around language read, settings definition, host-client creation, or agent configuration (`server.ts:479-616`).
 
 ## `rpcContract`
 
 ### How it works
 
-1. Build a `defineRpcContract` object by spreading the skills-hub schema and adding catalogue, scan, sync, purge, probe, OpenCode, gateway and language methods (`server.ts:219-455`).
-2. Each method specifies a Zod input and output. Nullable host IDs represent all-host selection; `purge` supplies defaults for gateway inclusion and dry run; bounded lists constrain bulk requests (`server.ts:242-270`, `server.ts:273-455`).
-3. Register the contract with a handler object that spreads `skillsHub.handlers` before defining the main plugin handlers (`server.ts:2088-2091`).
-4. Handlers either return refreshed overview state, return operation counts/results, or throw when an operation cannot proceed (`server.ts:2092-2150`, `server.ts:2613-2645`).
+1. Build a `defineRpcContract` object by spreading the skills-hub schema and adding catalogue, scan, sync, purge, probe, OpenCode, gateway, `set_language`, and `ui_language_set` methods (`server.ts:219-450`).
+2. Each method specifies a Zod input and output. Nullable host IDs represent all-host selection; `purge` supplies defaults for gateway inclusion and dry run; bounded lists constrain bulk requests (`server.ts:242-270`, `server.ts:273-450`).
+3. Register the contract with a handler object that spreads `skillsHub.handlers` before defining the main plugin handlers (`server.ts:2043-2253`).
+4. Handlers either return refreshed overview state, return operation counts/results, return `{ choice }`, or throw when an operation cannot proceed (`server.ts:2043-2253`).
 
 | Request branch | Result or failure |
 |---|---|
-| Input fails its schema | Contract validation rejects before dispatch (`server.ts:219-455`). |
-| Handler returns partial failures | The RPC returns its bounded error list and counts (`server.ts:1640-1685`, `server.ts:1688-1729`). |
-| Handler throws | The RPC call rejects; the UI action wrapper converts that rejection to a visible error (`skills-page.tsx:178-190`). |
+| Input fails its schema | Contract validation rejects before dispatch (`server.ts:219-450`). |
+| Handler returns partial failures | The RPC returns its bounded error list and counts (`server.ts:1594-1689`, `server.ts:2119-2150`). |
+| Handler throws | The RPC call rejects; the UI action wrapper converts that rejection to a visible error (`skills-page.tsx:163-190`). |
 
 ## `createSkillsHubService`
 
 ### How it works
 
-1. Resolve the hub root as `<experimental_dataDir>/skills` and initialize an in-memory list cache (`skills-hub-service.ts:263-281`).
-2. Read category tree, assignments and review queue from KV, substituting a seed tree and empty arrays when keys are absent. Serialize read-modify-write updates with `storeLock` (`skills-hub-service.ts:283-310`).
-3. Resolve classifier project from the configured project ID, else the personal project, else the first project. No listed project throws an error (`skills-hub-service.ts:316-324`). Build classifier adapters for hub skills, hidden thread creation and thread status (`skills-hub-service.ts:333-388`).
-4. On startup, if stored classifier state says `running`, clear that flag and start a fresh run. Register model tools and begin an initial machine refresh if no machine snapshot exists (`skills-hub-service.ts:390-442`, `skills-hub-service.ts:612-615`).
-5. Build hub views by reading hub files, KV stores, Git state, machine summaries and live config, then join category/review state to each listed skill (`skills-hub-service.ts:479-521`).
-6. Return handlers for settings, hub reads, category edits, classification, publish/pull/remove, machine refresh/import/cleanup, and matching CLI commands (`skills-hub-service.ts:659-737`, `skills-hub-service.ts:836-915`).
+1. Resolve the hub root as `<experimental_dataDir>/skills` and initialize an in-memory list cache (`skills-hub-service.ts:328-340`).
+2. Read category tree, assignments and review queue from KV, substituting a seed tree and empty arrays when keys are absent. Serialize read-modify-write updates with `storeLock` (`skills-hub-service.ts:342-369`).
+3. Resolve classifier project from the configured project ID, else the personal project, else the first project. No listed project throws an error (`skills-hub-service.ts:375-383`). Build classifier and card-writer adapters using `spawnHidden` with `requiredSessionPolicySpawnField` (`skills-hub-service.ts:392-413`, `required-session-policy.ts:73-103`).
+4. On startup, if stored classifier state says `running`, clear that flag and start a fresh run (`skills-hub-service.ts:464-470`). KV `"skillCanonToken"` (`KV.canonToken`, `skills-hub-service.ts:313`) supplies the token stamped into `<root>/.agent-tools-canon` (`CANON_MARKER`) and excluded in `.git/info/exclude` by `canonToken`, `stampCanon`, and `protectPaths` (`skills-hub-service.ts:927-959`, `skills-hub-service.ts:1586-1588`).
+5. Build hub views by reading hub files, KV stores, Git state, machine summaries and live config, filtering `notOnHub` via `machineNotOnHub`, mapping `offerCleanup: config.hubOnly`, and joining category/review state (`skills-hub-service.ts:1044-1086`, `hub-only.ts:46-57`).
+6. Return handlers for settings (including immediate `enforceHubOnlyMode()` when `hubOnly` is enabled), hub reads, category edits, classification, publish/pull/remove, machine refresh/import/cleanup, and matching CLI commands (`skills-hub-service.ts:1244-1589`).
 
 | Condition | Result or failure |
 |---|---|
-| Cached list is younger than 15 seconds and no fresh read requested | Return cached skill summaries (`skills-hub-service.ts:272-281`). |
-| Hub root is absent | View sets `available:false` and uses an empty skill list while still reading stores (`skills-hub-service.ts:479-488`). |
-| No configured classifier project and no BB projects exist | Project selection throws; the classifier run records its failure state (`skills-hub-service.ts:316-324`, `classifier.ts:256-261`). |
-| A host machine-count call rejects | Save a per-host error row and continue refreshing other hosts (`skills-hub-service.ts:444-475`). |
-| KV update rejects | The current request rejects; `storeLock` recovers for the next update (`skills-hub-service.ts:292-309`). |
+| Cached list is younger than 15 seconds and no fresh read requested | Return cached skill summaries (`skills-hub-service.ts:331-340`). |
+| Hub root is absent | View sets `available:false` and uses an empty skill list while still reading stores (`skills-hub-service.ts:1044-1086`). |
+| No configured classifier project and no BB projects exist | Project selection throws; the classifier run records its failure state (`skills-hub-service.ts:375-383`, `classifier.ts:256-261`). |
+| A host machine-count call rejects | Save a per-host error row and continue refreshing other hosts (`skills-hub-service.ts:962-1000`). |
+| Hub-only encounters a blocking or transient error on a host | Mark that host skipped (`"BB не загружает: ..."` plus transient reasons) and keep machine folders untouched (`hub-only.ts:63-118`, `skills-hub-service.ts:1006-1041`). |
+| KV update rejects | The current request rejects; `storeLock` recovers for the next update (`skills-hub-service.ts:353-369`). |
 
 ## `SkillsPage`
 
 ### How it works
 
-1. Initialize view, filter, selection, dialog and busy state. `act` clears the prior error, runs one action, stores a returned view, displays thrown errors and always resets busy (`skills-page.tsx:155-190`).
-2. Load `skills_hub` on mount. While classification is running, poll the same method every five seconds; polling errors are ignored (`skills-page.tsx:194-207`).
-3. When a skill is selected, clear the old detail, request `skills_hub_detail`, and ignore the result if selection changed before it returned (`skills-page.tsx:209-229`).
-4. Derive review/problem/unplaced counts, search by name or description, and choose all/review/problems/unplaced/section/subsection rows (`skills-page.tsx:231-282`).
-5. Run classification, category edits, publish/pull/remove, machine refresh/import, or optional cleanup through RPC actions (`skills-page.tsx:340-428`, `skills-page.tsx:745-919`). Cleanup first requests a dry-run preview, then requires a confirmation action.
+1. Initialize view, filter, selection, dialog and busy state. `act` clears the prior error, runs one action, stores a returned view, displays thrown errors and always resets busy (`skills-page.tsx:155-195`).
+2. Load `skills_hub` on mount. While classification is running, poll the same method every five seconds; polling errors are ignored (`skills-page.tsx:194-208`).
+3. When a skill is selected, clear the old detail, request `skills_hub_detail`, and ignore the result if selection changed before it returned (`skills-page.tsx:209-235`).
+4. Derive review/problem/unplaced counts, search by name or description, and choose all/review/problems/unplaced/section/subsection rows (`skills-page.tsx:236-305`).
+5. Run classification, category edits, publish/pull/remove, machine refresh/import, or `offerCleanup`-gated cleanup through RPC actions (`skills-page.tsx:360-475`, `skills-page.tsx:760-935`). Cleanup first requests a dry-run preview, then requires confirmation.
 
 | UI state | Branch and outcome |
 |---|---|
-| No view yet | Show loading text; show the initial request error if loading failed (`skills-page.tsx:297-303`). |
-| Hub unavailable | Show the expected hub root (`skills-page.tsx:305-311`). |
-| Search active | Match name/description regardless of selected category; show the relevant empty state when no rows match (`skills-page.tsx:240-282`, `skills-page.tsx:554-561`). |
-| Classifier running | Poll and disable manual classification (`skills-page.tsx:200-207`, `skills-page.tsx:347-361`). |
-| Action rejects | Display the error and clear busy; polling rejection stays hidden (`skills-page.tsx:178-190`, `skills-page.tsx:200-207`). |
-| Cleanup offered | Preview moved paths, request confirmation, then apply and refresh machine state (`skills-page.tsx:392-428`, `skills-page.tsx:858-919`). |
+| No view yet | Show loading text; show the initial request error if loading failed (`skills-page.tsx:310-325`). |
+| Hub unavailable | Show the expected hub root (`skills-page.tsx:315-328`). |
+| Search active | Match name/description regardless of selected category; show the relevant empty state when no rows match (`skills-page.tsx:250-305`, `skills-page.tsx:565-580`). |
+| Classifier running | Poll and disable manual classification (`skills-page.tsx:201-208`, `skills-page.tsx:360-380`). |
+| Action rejects | Display the error and clear busy; polling rejection stays hidden (`skills-page.tsx:163-190`, `skills-page.tsx:201-207`). |
+| Cleanup offered (`offerCleanup` / `hubOnly`) | Preview moved paths, request confirmation, then apply and refresh machine state (`skills-page.tsx:240-244`, `skills-page.tsx:419-475`). |
 
 ## `SettingsPage`
 
 ### How it works
 
-1. Load `skills_settings`; on success store values, on rejection display its message (`settings-page.tsx:37-51`).
-2. When provider is non-empty, request its models and show returned model options or a model-fetch error (`settings-page.tsx:53-65`).
-3. Provider changes clear the selected model; model, project, auto-classification and cleanup-offer controls each send a partial settings patch (`settings-page.tsx:108-175`, `settings-page.tsx:180-199`).
-4. Save through `skills_settings_set`; show saved/error state and always reset busy (`settings-page.tsx:67-79`, `settings-page.tsx:203-205`).
+1. Load `skills_settings`; on success store `uiLang`, classifier fields, `hubOnly`, `hubOnlyLast`, and choices; on rejection display its message (`settings-page.tsx:47-65`).
+2. When provider is non-empty, request its models and show returned model options or a model-fetch error (`settings-page.tsx:66-77`).
+3. Language controls update `uiLang` via `ui_language_set`, calling `setUiLangChoice` and `applyUiLang`; provider changes clear the selected model; model, project, auto-classification, and `hubOnly` controls send partial patches to `skills_settings_set` (`settings-page.tsx:78-289`).
+4. Show saved/error state, last `hubOnlyLast` summary (`imported`, `moved`, `rejected`, `skipped`), and always reset busy (`settings-page.tsx:78-115`, `settings-page.tsx:268-289`).
 
 | Failure or branch | UI outcome |
 |---|---|
-| Initial settings call rejects | Keep settings null and show the error instead of controls (`settings-page.tsx:46-51`, `settings-page.tsx:84-86`). |
-| Provider/model list is empty or model lookup rejects | Show loading state or model error beside the model selector (`settings-page.tsx:128-149`). |
-| Save rejects | Keep current settings, display an alert, and clear busy (`settings-page.tsx:67-79`, `settings-page.tsx:91-97`). |
-| Provider or project is no longer in the returned choice list | Preserve its current value as a selectable option (`settings-page.tsx:116-124`, `settings-page.tsx:159-165`). |
+| Initial settings call rejects | Keep settings null and show the error instead of controls (`settings-page.tsx:47-65`, `settings-page.tsx:116-125`). |
+| Provider/model list is empty or model lookup rejects | Show loading state or model error beside the model selector (`settings-page.tsx:180-210`). |
+| Save rejects | Keep current settings, display an alert, and clear busy (`settings-page.tsx:78-115`, `settings-page.tsx:120-128`). |
+| Provider or project is no longer in the returned choice list | Preserve its current value as a selectable option (`settings-page.tsx:165-175`, `settings-page.tsx:212-222`). |
 
 ## `readHubSkill`
 

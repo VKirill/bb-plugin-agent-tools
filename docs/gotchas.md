@@ -2,9 +2,9 @@
 title: Agent Tools gotchas
 type: gotchas
 created: 2026-09-27
-updated: 2026-10-28
+updated: 2026-11-14
 status: active
-confidence: low
+confidence: medium
 tags: [gotchas, safety, operations]
 sources:
   - host.ts
@@ -15,23 +15,31 @@ sources:
   - contract.ts
   - skill-tree.ts
   - skills-server.ts
+  - skills-sync.ts
+  - platform.ts
+  - host-skills.ts
+  - skills-hub-service.ts
+  - hub-only.ts
+  - required-session-policy.ts
+  - settings-page.tsx
+  - i18n.ts
 ---
 # Agent Tools gotchas
-The sharp edges are concentrated in host file safety, skill ownership rules, and the difference between catalogue changes and machine writes (`host.ts:213-241`, `skills.ts:103-178`, `server.ts:2613-2645`).
+The sharp edges are concentrated in host file safety, skill ownership and hub-only rules, and the difference between catalogue changes and machine writes (`host.ts:228-270`, `skills.ts:103-178`, `server.ts:2590-2623`, `hub-only.ts:63-118`).
 
 ## Critical
 
 ### Removing a catalogue row is not the same as removing a server
 
-**Problem:** `forget` deletes only the catalogue row; `remove` calls host purge, then deletes the catalogue row and adds the name to the ignored set (`server.ts:2613-2645`, `server.ts:1688-1729`).
+**Problem:** `forget` deletes only the catalogue row; `remove` calls host purge, then deletes the catalogue row and adds the name to the ignored set (`server.ts:2590-2623`, `server.ts:1643-1689`).
 
-**Risk:** A forgotten server remains configured on hosts and can return as a pending suggestion on a later scan (`server.ts:2613-2623`, `server.ts:740-779`).
+**Risk:** A forgotten server remains configured on hosts and can return as a pending suggestion on a later scan (`server.ts:2590-2600`, `server.ts:788-825`).
 
 **Workaround:** Use `bb tools remove <name> --dry-run` to preview host removal; use `forget` only when host configs must stay as they are.
 
 ### Legacy fan-out can stop to protect files
 
-**Problem:** A direct call to the retained `skills_fanout` RPC can abort replacement if the losing skill tree has files absent from the winning tree (`server.ts:2203-2206`, `host.ts:440-466`, `host.ts:929-948`).
+**Problem:** A direct call to the retained `skills_fanout` RPC can abort replacement if the losing skill tree has files absent from the winning tree (`server.ts:2163-2166`, `host.ts:447-481`, `host.ts:929-955`).
 
 **Risk:** A newer timestamp does not authorize dropping extra files; the operation fails and requires a person to reconcile branches.
 
@@ -41,7 +49,7 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 ### Unconfirmed paths are never created
 
-**Problem:** A config is manageable only when its file exists or its `AgentDef.confirmedPath` is true (`agents.ts:40-46`, `server.ts:652-665`).
+**Problem:** A config is manageable only when its file exists or its `AgentDef.confirmedPath` is true (`agents.ts:40-46`, `server.ts:755-762`).
 
 **Risk:** A CLI may appear installed but its guessed config path remains read-only for writes.
 
@@ -49,7 +57,7 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 ### Commented JSONC is read-only
 
-**Problem:** `loadConfig` marks JSONC with comments non-writable; OpenCode applies the same rule (`host.ts:175-205`, `host.ts:574-698`).
+**Problem:** `loadConfig` marks JSONC with comments non-writable (`host.ts:158-214`); OpenCode `scanOpenCode` and `applyOpenCode` apply the same rule (`host.ts:581-705`).
 
 **Risk:** The UI can show a complete scan while a write action returns an error.
 
@@ -57,13 +65,37 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 ### BB skill registry paths are owned by BB
 
-**Problem:** The retained machine-home policy `own` suppresses legacy fan-out handling of the BB skill home; replacing a real directory with a symlink removes it from BB's registry (`skills.ts:103-117`, `host.ts:533-570`).
+**Problem:** The retained machine-home policy `own` suppresses legacy fan-out handling of the BB skill home; replacing a real directory with a symlink removes it from BB's registry (`skills.ts:103-117`, `host.ts:540-577`).
 
 **Risk:** An action that treats `~/.bb/skills` like a normal CLI home can hide a skill from BB sessions.
 
 **Workaround:** Keep real folders in `~/.bb/skills`; the legacy fan-out planner mirrors eligible canon entries beside that home (`skills.ts:458-499`).
 
+### Hub canon protection requires the `.agent-tools-canon` token
+
+**Problem:** Protecting `~/.bb/skills` by path alone would accidentally skip `~/.bb/skills` on other machines with the same home layout. `stampCanon` writes KV `skillCanonToken` into `<root>/.agent-tools-canon` (ignored via `.git/info/exclude`), and `host-skills.ts` protects a directory only when `.agent-tools-canon` matches that token (`skills-hub-service.ts:927-959`, `host-skills.ts:113-145`).
+
+**Risk:** Missing or mismatched `.agent-tools-canon` causes the hub's own library folder to be scanned or cleaned if a host points at it.
+
+**Workaround:** Keep `protectPaths()` stamped before `skill_homes_count` / `skill_homes_cleanup` calls (`skills-hub-service.ts:955-959`, `skills-hub-service.ts:1586-1588`).
+
 ## Medium
+
+### Hub-only cleanup aborts per host on any blocking rejection or transient error
+
+**Problem:** `enforceHubOnly` imports skills from `machineNotOnHub` (built against `loadableHubNames(hub)` so hub skills with `blocking: true` problems remain eligible), and skips cleanup on a host whenever any skill hits a blocking rejection or transient import error (`hub-only.ts:46-120`).
+
+**Risk:** Machine folders remain unarchived on that host until all missing skills load without validation rejections or transport errors.
+
+**Workaround:** Inspect `hubOnlyLast.skipped` on the Settings page or run `bb tools skills-hub-only --dry-run` to see which skill blocked cleanup (`settings-page.tsx:268-289`, `skills-hub-service.ts:1485-1511`).
+
+### Narrow session policy is skipped if core does not advertise it
+
+**Problem:** `requiredSessionPolicySpawnField` emits `experimental_vkRequiredSessionPolicy` for hidden classifier and card-writer threads only when `bb.agents.experimental_vkRequiredSessionPolicy()` returns an advertisement covering the chosen provider and instruction switches (`required-session-policy.ts:46-98`, `skills-hub-service.ts:404-408`).
+
+**Risk:** On older BB cores or unadvertised providers, hidden threads run without the narrowed plugin/MCP/instruction policy (`required-session-policy.ts:73-98`).
+
+**Workaround:** Run on a BB core that advertises `experimental_vkRequiredSessionPolicy` for the selected classifier provider.
 
 ### Newest mtime is not enough when top versions disagree
 
@@ -71,11 +103,11 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 **Risk:** A skill can remain divergent after rollout without an automatic winner.
 
-**Workaround:** Review the competing versions and use the legacy adopt/take host operation only when that workflow is intentionally invoked (`host.ts:476-531`).
+**Workaround:** Review the competing versions and use the legacy adopt/take host operation only when that workflow is intentionally invoked (`host.ts:483-539`).
 
 ### A successful OpenCode update can leave BB's default unchanged
 
-**Problem:** OpenCode host writes and BB database preference writes are separate operations; the BB write helper returns false on database errors (`host.ts:638-698`, `server.ts:2218-2255`).
+**Problem:** OpenCode host writes and BB database preference writes are separate operations; the BB write helper returns false on database errors (`host.ts:645-705`, `server.ts:2206-2244`).
 
 **Risk:** CLI defaults and BB's new-chat default can differ.
 
@@ -83,7 +115,7 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 ### Skill archive listing is bounded, archive storage is not
 
-**Problem:** The host lists up to 500 snapshots and the code has no cleanup job for the skill archive (`host.ts:982-1039`).
+**Problem:** The host lists up to 500 snapshots and the code has no cleanup job for the skill archive (`host.ts:989-1050`).
 
 **Risk:** Older snapshots can remain on disk but not appear in a single response; archive storage can grow.
 
@@ -95,11 +127,11 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 **Risk:** A skill under the byte limit but over 1,000 files can pass the planner while BB rejects the injected tree.
 
-**Workaround:** Keep skill trees below both BB limits; review `bbFiles` in the skills scan when the file count may exceed 1,000 (`contract.ts:99-105`, `skills.ts:148-160`).
+**Workaround:** Keep skill trees below both BB limits (`BB_INJECT_MAX_BYTES` and `BB_INJECT_MAX_FILES` in `skills.ts:148-160`); review `bbFiles` in the skills scan when the file count may exceed 1,000 (`contract.ts:99-108`).
 
 ### Dependency and cache files are removed from skill copies
 
-**Problem:** Skill copies and server-transfer archives omit dependency folders, build caches, and selected temporary files (`skill-tree.ts:12-29`, `host.ts:1096-1108`, `skills-server.ts:130-145`).
+**Problem:** Skill copies and server-transfer archives omit dependency folders, build caches, and selected temporary files (`skill-tree.ts:12-29`, `host.ts:1070-1100`, `skills-server.ts:130-145`).
 
 **Risk:** A skill that relies on files inside those excluded paths will be copied without them.
 
@@ -111,14 +143,14 @@ The sharp edges are concentrated in host file safety, skill ownership rules, and
 
 **Problem:** A Windows host differs from macOS and Linux in four ways that the host entry has to absorb (`platform.ts`, `host.ts`, `skills-sync.ts`, `normalize.ts`).
 
-- **`cmd /c` wrapper.** Native Windows Claude Code and Codex cannot spawn `.cmd` shims (`npx`, `gitnexus`, `agentmemory`) directly. When the host entry writes a stdio server on `win32`, `wrapForWindows` rewrites a bare or `.cmd`/`.bat` command into `{"command":"cmd","args":["/c","npx","-y","pkg"]}`. `signature` unwraps `cmd /c` and drops `.exe`/`.cmd`/`.bat`, so the wrapped and plain forms count as the same server and do not show up as drift.
-- **Junctions.** `linkDir` creates skill links as junctions on Windows because a directory symlink needs Developer Mode or admin rights. Targets are absolute paths.
-- **`autocrlf=false` for the canon.** The default git runner prepends `-c core.autocrlf=false`. Windows git usually has `core.autocrlf=true`, which changes file sizes and therefore fingerprints, so every skill would look divergent from the other machines. The flag is a no-op on Unix; injected test runners are not touched.
-- **PATHEXT.** `findBin` and `resolveGitBin` try the `binCandidates` names (`git.com`, `git.exe`, `git.bat`, `git.cmd`, `git`) in every search directory; `gitBinSearchDirs` adds the usual Windows install directories when called with the `;` delimiter.
+- **`cmd /c` wrapper.** Native Windows Claude Code and Codex cannot spawn `.cmd` shims (`npx`, `gitnexus`, `agentmemory`) directly. When the host entry writes a stdio server on `win32`, `wrapForWindows` rewrites a bare or `.cmd`/`.bat` command into `{"command":"cmd","args":["/c","npx","-y","pkg"]}` (`platform.ts`, `host.ts:1102-1178`). `signature` unwraps `cmd /c` and drops `.exe`/`.cmd`/`.bat`, so the wrapped and plain forms count as the same server and do not show up as drift (`normalize.ts:227-283`).
+- **Junctions.** `linkDir` creates skill links as junctions on Windows because a directory symlink needs Developer Mode or admin rights. Targets are absolute paths (`host.ts`).
+- **`autocrlf=false` and `C` locale for Git.** `runGit` prepends `-c core.autocrlf=false` and pins `LC_ALL`, `LC_MESSAGES`, `LANG`, and `LANGUAGE` to `"C"` (`skills-sync.ts:37-53`). Windows git defaults with `core.autocrlf=true` would alter file sizes and fingerprints, and localized Git diagnostics would break English error-matching.
+- **PATHEXT.** `findBin` and `resolveGitBin` try the `binCandidates` names (`git.com`, `git.exe`, `git.bat`, `git.cmd`, `git`) in every search directory; `gitBinSearchDirs` adds standard Windows install directories when called with the `;` delimiter (`host.ts:87-105`, `skills-sync.ts:56-69`, `i18n.ts:309`).
 
-**Risk:** Forgetting any of these makes a CLI look "not installed", the canon look divergent, or a link fail with `EPERM`. Windows paths (`C:\…`) in a command or argument mark a server as machine-bound.
+**Risk:** Forgetting any of these makes a CLI look "not installed", Git output fail parser checks, or a link fail with `EPERM`. Windows paths (`C:\…`) in a command or argument mark a server as machine-bound.
 
-**Workaround:** Keep platform checks in `platform.ts` and `process.platform` guards at the write sites. `bb plugin build` may fail to bootstrap its toolchain on Windows; `tests/skills-sync.test.ts` then loads `skills-sync.ts` from source.
+**Workaround:** Keep platform checks in `platform.ts`, `skills-sync.ts`, and `process.platform` guards at the write sites; `tests/windows.test.ts` covers the Windows rules.
 
 See [MCP catalogue](features/mcp-catalog.md), [skills](features/skills.md), [OpenCode](features/opencode.md), and [data model](data-model.md).
 
