@@ -532,6 +532,12 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("ID проекта BB. Пусто — личный проект."),
       default: "",
     },
+    skillsSuggestEngine: {
+      type: "string",
+      label: t("Подбор навыков: модель-подборщик"),
+      description: t("jev — TypeSafe Jev, gemini — Google Gemini. Ключ и модель задаются отдельно для каждого."),
+      default: "jev",
+    },
     jevApiKey: {
       type: "string",
       label: t("Подбор навыков: ключ TypeSafe (Jev)"),
@@ -545,6 +551,31 @@ export default async function plugin(bb: BbPluginApi) {
       description: t("Идентификатор модели System One, например jev-1.14.0."),
       default: "jev-1.14.0",
     },
+    geminiApiKey: {
+      type: "string",
+      label: t("Подбор навыков: ключ Google Gemini"),
+      description: t("Ключ Gemini API из Google AI Studio. Нужен, если подборщик — gemini."),
+      secret: true,
+      default: "",
+    },
+    jevApiKeyEnv: {
+      type: "string",
+      label: t("Подбор навыков: ключ Jev из Env Catalog"),
+      description: t("Имя записи в Env Catalog. Используется, если ключ не вписан вручную."),
+      default: "",
+    },
+    geminiApiKeyEnv: {
+      type: "string",
+      label: t("Подбор навыков: ключ Gemini из Env Catalog"),
+      description: t("Имя записи в Env Catalog. Используется, если ключ не вписан вручную."),
+      default: "",
+    },
+    geminiModel: {
+      type: "string",
+      label: t("Подбор навыков: модель Gemini"),
+      description: t("Идентификатор модели Gemini, например gemini-3.5-flash-lite."),
+      default: "gemini-3.5-flash-lite",
+    },
     skillsSuggestTools: {
       type: "boolean",
       label: t("Подбор навыков: инструменты skills_find и skill_read"),
@@ -554,7 +585,7 @@ export default async function plugin(bb: BbPluginApi) {
     skillsSuggestInject: {
       type: "boolean",
       label: t("Подбор навыков: подсказка в каждом ходе"),
-      description: t("Перед отправкой сообщения пользователя агенту Jev подбирает навык и добавляет скрытую для чата подсказку. Ход начинается примерно на секунду позже, над полем ввода на миг появляется строка очереди. Нужен ключ TypeSafe."),
+      description: t("Перед отправкой сообщения пользователя агенту выбранная модель подбирает навык и добавляет скрытую для чата подсказку. Работает с любым провайдером BB. Ход начинается на 1–3 секунды позже, над полем ввода на миг появляется строка очереди. Нужен ключ выбранной модели."),
       default: false,
     },
     skillsSuggestGate: {
@@ -596,8 +627,13 @@ export default async function plugin(bb: BbPluginApi) {
       classifierProjectId: config.skillsClassifierProjectId,
       classifierAuto: config.skillsClassifierAuto,
       hubOnly: config.skillsHubOnly,
+      skillsSuggestEngine: config.skillsSuggestEngine,
       jevApiKey: config.jevApiKey,
       jevModel: config.jevModel,
+      geminiApiKey: config.geminiApiKey,
+      geminiModel: config.geminiModel,
+      jevApiKeyEnv: config.jevApiKeyEnv,
+      geminiApiKeyEnv: config.geminiApiKeyEnv,
       skillsSuggestTools: config.skillsSuggestTools,
       skillsSuggestInject: config.skillsSuggestInject,
       skillsSuggestGate: config.skillsSuggestGate,

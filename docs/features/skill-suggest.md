@@ -2,7 +2,7 @@
 title: Skill suggestion through Jev
 type: component
 created: 2026-11-03
-updated: 2026-11-14
+updated: 2026-11-20
 status: active
 confidence: medium
 tags: [skills, jev, typesafe, routing]
@@ -113,7 +113,22 @@ points at `skill_read` instead.
 | `bb tools skills-suggest-log [--limit N] [--json]` | last entries of the 200-entry log (KV `skillSuggestLog`) |
 | tools `skills_find`, `skill_read` | ranked search and SKILL.md / file reading for ordinary threads; setting `skillsSuggestTools`, off by default |
 
-Settings: `jevApiKey` (secret), `jevModel` (`jev-1.14.0`), `skillsSuggestGate`, `skillsSuggestFits`,
-`skillsSuggestExclude`, `skillsSuggestTools`.
+Settings: `skillsSuggestEngine` (`jev` | `gemini`), `jevApiKey` (secret), `jevModel` (`jev-1.14.0`),
+`geminiApiKey` (secret), `geminiModel` (`gemini-3.5-flash-lite`), `skillsSuggestInject`, `skillsSuggestTools`,
+`skillsSuggestGate`, `skillsSuggestFits`, `skillsSuggestExclude`. The engine, both keys, both models and the two
+switches are also on the plugin's Settings page (section «Подбор навыков»); the page gets only whether a key is set.
+A key is either typed in or picked from Env Catalog by record name (`jevApiKeyEnv`, `geminiApiKeyEnv`; one source
+per engine, saving one clears the other). The server reads the record through `bb.sdk.plugins.callRpc`
+(`env-catalog` → `env_get_value`) and keeps it 10 minutes, since every read is journalled; a settings save drops
+the cache. The picker lists record names only (`env_list`, kind `secret`), likely matches first.
+
+## Google Gemini engine
+
+`skill-suggest/gemini.ts` puts Gemini (`generateContent`, JSON schema output, `thinkingLevel: minimal`) behind
+the same `JevClient` interface, so both passes, gates and thresholds run unchanged. Choice answers come back as a
+ranked top 5 with estimated probabilities; option enums are sent only for lists of 20 or fewer (Gemini refuses a
+200-value enum with "too many states"), longer lists are validated in code. Probabilities are the model's own
+estimates, not Jev's calibrated ones, so the 0.6 / 0.5 thresholds are a starting point. Spot check on 280 skills,
+5 messages: 5/5 right decisions, 1.3–2.4 s and ≈16k input tokens per turn (≈ $0.005 at $0.30 / Mtok, ~5× Jev).
 
 Not in this phase: a screen, hiding BB's skill list.

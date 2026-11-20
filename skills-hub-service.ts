@@ -54,7 +54,8 @@ import {
 import { contentHash, manualCard, skillBody, skillCardSchema, type StoredCard } from "./skill-suggest/cards.ts";
 import { enforceHubOnly, loadableHubNames, machineNotOnHub, type HubOnlyReport } from "./hub-only.ts";
 import { CANON_MARKER, type ProtectEntry } from "./host-skills.ts";
-import { createHttpJevClient } from "./skill-suggest/jev.ts";
+import { createHttpJevClient, type JevClient } from "./skill-suggest/jev.ts";
+import { createGeminiClient, DEFAULT_GEMINI_MODEL } from "./skill-suggest/gemini.ts";
 import { SkillDispatchInjector, type DispatchContext, type QueuedRow } from "./skill-suggest/dispatch.ts";
 import { ThreadSkillMemory, alreadySuggested, appendLog, type SuggestLogEntry, type SuggestLogMode } from "./skill-suggest/log.ts";
 import {
@@ -160,6 +161,20 @@ const skillsSettingsSchema = z.object({
   auto: z.boolean(),
   projectId: z.string(),
   hubOnly: z.boolean(),
+  /** Skill suggestion: keys are never sent to the page, only whether they are set. */
+  suggest: z.object({
+    engine: z.enum(["jev", "gemini"]),
+    inject: z.boolean(),
+    tools: z.boolean(),
+    jevKeySet: z.boolean(),
+    jevKeyEnv: z.string(),
+    jevModel: z.string(),
+    geminiKeySet: z.boolean(),
+    geminiKeyEnv: z.string(),
+    geminiModel: z.string(),
+    /** Names only, never values; null when Env Catalog is not installed. */
+    envSecrets: z.array(z.object({ name: z.string(), service: z.string() })).max(2000).nullable(),
+  }),
   hubOnlyLast: z
     .object({
       at: z.number(),
@@ -236,6 +251,15 @@ export const skillsRpcContract = {
       auto: z.boolean().optional(),
       projectId: z.string().max(120).optional(),
       hubOnly: z.boolean().optional(),
+      suggestEngine: z.enum(["jev", "gemini"]).optional(),
+      suggestInject: z.boolean().optional(),
+      suggestTools: z.boolean().optional(),
+      jevApiKey: z.string().max(500).optional(),
+      jevModel: z.string().max(120).optional(),
+      geminiApiKey: z.string().max(500).optional(),
+      geminiModel: z.string().max(120).optional(),
+      jevApiKeyEnv: z.string().max(200).optional(),
+      geminiApiKeyEnv: z.string().max(200).optional(),
     }),
     output: skillsSettingsSchema,
   },
@@ -284,8 +308,15 @@ export type SkillsHubConfig = {
   classifierAuto: boolean;
   /** Experimental: keep CLI skill folders on every machine empty, skills come only from the hub. */
   hubOnly: boolean;
+  /** Which model picks skills: TypeSafe Jev or Google Gemini. */
+  skillsSuggestEngine: string;
   jevApiKey: string;
   jevModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  /** Env Catalog names to read the keys from when no key is typed in. */
+  jevApiKeyEnv: string;
+  geminiApiKeyEnv: string;
   skillsSuggestTools: boolean;
   /** Append a skill hint to each user turn through the dispatch hook. */
   skillsSuggestInject: boolean;
@@ -300,7 +331,38 @@ export type SkillsHubConfigPatch = Partial<{
   skillsClassifierProjectId: string;
   skillsClassifierAuto: boolean;
   skillsHubOnly: boolean;
+  skillsSuggestEngine: string;
+  skillsSuggestInject: boolean;
+  skillsSuggestTools: boolean;
+  jevApiKey: string;
+  jevModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  jevApiKeyEnv: string;
+  geminiApiKeyEnv: string;
 }>;
+
+export type SuggestEngine = "jev" | "gemini";
+
+export function suggestEngine(config: Pick<SkillsHubConfig, "skillsSuggestEngine">): SuggestEngine {
+  return config.skillsSuggestEngine === "gemini" ? "gemini" : "jev";
+}
+
+/** The chosen engine's client for a resolved key, or null when the key is empty. */
+export function engineClient(config: SkillsHubConfig, key: string): JevClient | null {
+  if (key === "") return null;
+  return suggestEngine(config) === "gemini"
+    ? createGeminiClient({ apiKey: key, model: config.geminiModel.trim() || DEFAULT_GEMINI_MODEL })
+    : createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" });
+}
+
+const ENV_CATALOG = "env-catalog";
+/** Every Env Catalog read is journalled: read a key at most this often. */
+const ENV_KEY_TTL_MS = 10 * 60_000;
+const envValueSchema = z.object({ value: z.string().nullable() });
+const envListSchema = z.object({
+  variables: z.array(z.object({ name: z.string(), kind: z.string(), service: z.string().nullable().optional() })),
+});
 
 const CACHE_MS = 15_000;
 const KV = {
@@ -327,6 +389,38 @@ export function createSkillsHubService(
 ) {
   const root = bbServerSkillsDir(bb.server.experimental_dataDir);
   let cache: { at: number; skills: HubSkill[] } | null = null;
+
+  // ------------------------------------------- engine key: typed or Env Catalog
+  const envKeys = new Map<string, { at: number; value: string }>();
+  async function envKey(name: string): Promise<string> {
+    const hit = envKeys.get(name);
+    if (hit !== undefined && Date.now() - hit.at < ENV_KEY_TTL_MS) return hit.value;
+    const read = await bb.sdk.plugins
+      .callRpc({ pluginId: ENV_CATALOG, method: "env_get_value", input: { name }, outputSchema: envValueSchema })
+      .then((record) => (record.value ?? "").trim())
+      .catch((cause: unknown) => {
+        bb.log.warn(`skill suggest: Env Catalog ${name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        return "";
+      });
+    envKeys.set(name, { at: Date.now(), value: read });
+    return read;
+  }
+  /** A typed key wins; otherwise the chosen Env Catalog record. */
+  async function suggestClient(config: SkillsHubConfig): Promise<JevClient | null> {
+    const gemini = suggestEngine(config) === "gemini";
+    const typed = (gemini ? config.geminiApiKey : config.jevApiKey).trim();
+    const envName = (gemini ? config.geminiApiKeyEnv : config.jevApiKeyEnv).trim();
+    return engineClient(config, typed !== "" ? typed : envName !== "" ? await envKey(envName) : "");
+  }
+  /** Secrets in Env Catalog for the key picker; null when the plugin is not installed. */
+  async function envSecrets(): Promise<Array<{ name: string; service: string }> | null> {
+    try {
+      const list = await bb.sdk.plugins.callRpc({ pluginId: ENV_CATALOG, method: "env_list", input: { kind: "secret" }, outputSchema: envListSchema });
+      return list.variables.map((item) => ({ name: item.name, service: item.service ?? "" })).sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      return null;
+    }
+  }
 
   async function hubSkills(fresh = false): Promise<HubSkill[]> {
     if (!fresh && cache !== null && Date.now() - cache.at < CACHE_MS) return cache.skills;
@@ -547,7 +641,7 @@ export function createSkillsHubService(
 
   const hinted = new ThreadSkillMemory();
 
-  /** One suggestion, logged. Null result means no Jev key. */
+  /** One suggestion, logged. Null result means the chosen engine has no key. */
   async function runSuggest(args: {
     message: string;
     prevUser?: string;
@@ -556,13 +650,13 @@ export function createSkillsHubService(
     mode: SuggestLogMode;
   }) {
     const config = await readConfig();
-    const key = config.jevApiKey.trim();
-    if (key === "") return null;
+    const client = await suggestClient(config);
+    if (client === null) return null;
     const log = await readSuggestLog();
     const now = Date.now();
     const suggested =
       args.threadId === null ? [] : [...new Set([...alreadySuggested(log, args.threadId, now), ...hinted.recent(args.threadId, now)])];
-    const result = await suggest(createHttpJevClient({ apiKey: key, model: config.jevModel.trim() || "jev-1.14.0" }), await loadRoster(), {
+    const result = await suggest(client, await loadRoster(), {
       message: args.message,
       context: { prevUser: args.prevUser || undefined, prevAssistant: args.prevAssistant || undefined },
     }, {
@@ -600,7 +694,7 @@ export function createSkillsHubService(
   let injectReadAt = 0;
   async function readInject(): Promise<boolean> {
     const config = await readConfig();
-    injectOn = config.skillsSuggestInject === true && config.jevApiKey.trim() !== "";
+    injectOn = config.skillsSuggestInject === true && (await suggestClient(config)) !== null;
     // Keep the roster warm so a queued turn never waits for a cold build.
     if (injectOn) void loadRoster().catch(() => undefined);
     return injectOn;
@@ -840,12 +934,12 @@ export function createSkillsHubService(
       suggestToolsOn = config.skillsSuggestTools === true;
       const roster = await loadRoster();
       const cap = limit ?? 5;
-      const client = config.jevApiKey.trim() === "" ? null : createHttpJevClient({ apiKey: config.jevApiKey.trim(), model: config.jevModel.trim() || "jev-1.14.0" });
+      const client = await suggestClient(config);
       let candidates: Awaited<ReturnType<typeof find>> = [];
       let note = "";
       try {
         candidates = client === null ? keywordFind(roster, query, cap) : await find(client, roster, query, context, cap);
-        if (client === null) note = "Jev is not configured; ranked by keyword match.\n";
+        if (client === null) note = "No skill-matching key is set (Jev or Gemini); ranked by keyword match.\n";
       } catch (cause) {
         candidates = [];
         note = `Skill search failed open: ${cause instanceof Error ? cause.message : String(cause)}\n`;
@@ -1216,6 +1310,18 @@ export function createSkillsHubService(
       auto: config.classifierAuto,
       projectId: config.classifierProjectId,
       hubOnly: config.hubOnly,
+      suggest: {
+        engine: suggestEngine(config),
+        inject: config.skillsSuggestInject,
+        tools: config.skillsSuggestTools,
+        jevKeySet: config.jevApiKey.trim() !== "",
+        jevKeyEnv: config.jevApiKeyEnv,
+        jevModel: config.jevModel,
+        geminiKeySet: config.geminiApiKey.trim() !== "",
+        geminiKeyEnv: config.geminiApiKeyEnv,
+        geminiModel: config.geminiModel,
+        envSecrets: await envSecrets(),
+      },
       hubOnlyLast,
       providers,
       projects,
@@ -1243,9 +1349,19 @@ export function createSkillsHubService(
 
   const handlers = {
     skills_settings: async () => settingsView(),
-    skills_settings_set: async (input: { provider?: string; model?: string; auto?: boolean; projectId?: string; hubOnly?: boolean }) => {
+    skills_settings_set: async (input: z.infer<(typeof skillsRpcContract)["skills_settings_set"]["input"]>) => {
       const before = await readConfig();
       await saveConfig({
+        ...(input.suggestEngine !== undefined ? { skillsSuggestEngine: input.suggestEngine } : {}),
+        ...(input.suggestInject !== undefined ? { skillsSuggestInject: input.suggestInject } : {}),
+        ...(input.suggestTools !== undefined ? { skillsSuggestTools: input.suggestTools } : {}),
+        // One key source per engine: a typed key drops the catalog name and back.
+        ...(input.jevApiKey !== undefined ? { jevApiKey: input.jevApiKey.trim(), jevApiKeyEnv: "" } : {}),
+        ...(input.jevApiKeyEnv !== undefined ? { jevApiKeyEnv: input.jevApiKeyEnv.trim(), jevApiKey: "" } : {}),
+        ...(input.jevModel !== undefined ? { jevModel: input.jevModel.trim() } : {}),
+        ...(input.geminiApiKey !== undefined ? { geminiApiKey: input.geminiApiKey.trim(), geminiApiKeyEnv: "" } : {}),
+        ...(input.geminiApiKeyEnv !== undefined ? { geminiApiKeyEnv: input.geminiApiKeyEnv.trim(), geminiApiKey: "" } : {}),
+        ...(input.geminiModel !== undefined ? { geminiModel: input.geminiModel.trim() } : {}),
         ...(input.provider !== undefined ? { skillsClassifierProvider: input.provider } : {}),
         ...(input.model !== undefined ? { skillsClassifierModel: input.model } : {}),
         ...(input.auto !== undefined ? { skillsClassifierAuto: input.auto } : {}),
@@ -1257,6 +1373,10 @@ export function createSkillsHubService(
         void enforceHubOnlyMode().catch((cause: unknown) => bb.log.warn(`skills hub-only: ${String(cause)}`));
       }
       const after = await readConfig();
+      // A changed source or a rotated catalog key is read again on the next turn.
+      envKeys.clear();
+      // The per-turn hook reads a cached switch: refresh it now, not in 5 s.
+      await readInject().catch(() => undefined);
       // A new model or provider starts a new classifier thread with the next skill.
       if (after.classifierProvider !== before.classifierProvider || after.classifierModel !== before.classifierModel) {
         const state = await readState();
