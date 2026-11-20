@@ -102,6 +102,6 @@ test("machine skills: links resolve, newest copy wins, CLI-owned folders are ski
   const found = await listMachineSkills(home);
   assert.deepEqual(found.map((item) => item.name), ["edo", "ru-text", "seo"]);
   assert.equal(found.find((item) => item.name === "seo")?.home, "~/.qwen/skills");
-  assert.equal(found.find((item) => item.name === "ru-text")?.path.endsWith(".agents/skills/ru-text"), true);
+  assert.equal(found.find((item) => item.name === "ru-text")?.path.endsWith(path.join(".agents", "skills", "ru-text")), true);
   assert.equal(found.some((item) => item.name === "pdf" || item.name === "synced"), false);
 });
