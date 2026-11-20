@@ -57,8 +57,8 @@ export function unwrapShell(
 }
 
 /**
- * Native Windows Claude Code and Codex cannot spawn `.cmd` shims (npx, gitnexus,
- * agentmemory) directly. True for bare names that are not an `.exe`/`.com`, and
+ * Native Windows Claude Code and Codex cannot spawn `.cmd` shims (npx, gitnexus)
+ * directly. True for bare names that are not an `.exe`/`.com`, and
  * for explicit `.cmd`/`.bat` paths.
  */
 export function needsCmdWrapper(command: string): boolean {

@@ -281,7 +281,7 @@ const SEED: Seed[] = [
     ["Плагины и ядро BB", "BB plugins and core", "плагины BB, ядро, CLI bb"],
     ["Провайдеры CLI", "CLI providers", "Codex, Claude Code, OpenCode, ACP"],
     ["Lane Stack и Lane Pilot", "Lane Stack and Lane Pilot", "оркестрация писателей, контракты линий"],
-    ["Память агентов", "Agent memory", "agentmemory, память BB"],
+    ["Память агентов", "Agent memory", "память Lane Pilot, память BB"],
     ["Инструкции и навыки", "Instructions and skills", "AGENTS.md, промпты, создание навыков"],
     ["MCP", "MCP", "MCP-серверы, MetaMCP"],
   ]],
