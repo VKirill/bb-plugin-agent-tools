@@ -36,7 +36,7 @@ The main areas are the MCP catalogue and sync, BB hub skill management (includin
 - TypeScript with ES2022, ES modules, bundler resolution, and React JSX (`tsconfig.json:1-29`).
 - BB Plugin SDK `0.4.87` and BB engine `>=0.43` (`package.json:20-38`, `package.json:45-49`).
 - Runtime dependencies include Zod `^4.3.6`, Radix UI tabs/checkbox/separator/slot, and HugeIcons (`package.json:38-45`).
-- Development dependencies include TypeScript `^5.7.0`, Hono `^4.11.9`, better-sqlite3 `^12.0.0`, and `@get-bb/plugin-sdk` `0.4.87` (`package.json:47-72`).
+- Development dependencies include TypeScript `^5.7.0`, Hono `^4.11.9`, and `@get-bb/plugin-sdk` `0.4.87` (`package.json`). The plugin ships no native modules: BB's database is read through Node's built-in `node:sqlite`.
 
 ## Quick start
 

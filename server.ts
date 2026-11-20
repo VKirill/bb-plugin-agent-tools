@@ -79,7 +79,7 @@ import { createSkillsHubService, skillsRpcContract, SKILLS_CLI_USAGE } from "./s
 import { DEFAULT_EXCLUDE } from "./skill-suggest/suggest.ts";
 import { homedir } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { existsSync } from "node:fs";
 
 /** Поддержка ~ в путях CLI-команды. */
 function expandHome(value: string): string {
@@ -867,42 +867,45 @@ export default async function plugin(bb: BbPluginApi) {
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // BB's own database, opened lazily through Node's built-in SQLite so the plugin
+  // never fails to load on a runtime without it (issue #2). null = feature off.
+  function openBbDb(readOnly: boolean): import("node:sqlite").DatabaseSync | null {
+    const sqlite = process.getBuiltinModule?.("node:sqlite") as typeof import("node:sqlite") | undefined;
+    const dbPath = path.join(bb.server.experimental_dataDir, "bb.db");
+    if (!sqlite || !existsSync(dbPath)) return null;
+    return new sqlite.DatabaseSync(dbPath, { readOnly });
+  }
+
   function getBbPreselectedModel(): string | null {
     try {
-      const dbPath = path.join(homedir(), ".bb", "bb.db");
-      const db = new Database(dbPath, { readonly: true });
-      const row = db.prepare(
-        "SELECT model FROM project_execution_defaults WHERE provider_id = 'acp-opencode' ORDER BY updated_at DESC LIMIT 1"
-      ).get() as { model: string } | undefined;
-      db.close();
-      return row ? row.model : null;
+      const db = openBbDb(true);
+      if (!db) return null;
+      try {
+        const row = db.prepare(
+          "SELECT model FROM project_execution_defaults WHERE provider_id = 'acp-opencode' ORDER BY updated_at DESC LIMIT 1"
+        ).get() as { model: string } | undefined;
+        return row ? row.model : null;
+      } finally {
+        db.close();
+      }
     } catch {
       return null;
     }
   }
 
+  // Only rewrites projects that already chose OpenCode in BB; never invents a row.
   function setBbPreselectedModel(modelId: string): boolean {
     try {
-      const dbPath = path.join(homedir(), ".bb", "bb.db");
-      const db = new Database(dbPath);
-      const now = Date.now();
-      const rows = db.prepare(
-        "SELECT project_id FROM project_execution_defaults WHERE provider_id = 'acp-opencode'"
-      ).all() as { project_id: string }[];
-
-      if (rows.length > 0) {
-        db.prepare(
+      const db = openBbDb(false);
+      if (!db) return false;
+      try {
+        const result = db.prepare(
           "UPDATE project_execution_defaults SET model = ?, updated_at = ? WHERE provider_id = 'acp-opencode'"
-        ).run(modelId, now);
-      } else {
-        const pRow = db.prepare("SELECT id FROM projects LIMIT 1").get() as { id: string } | undefined;
-        const projId = pRow?.id ?? "proj_ejbam66722";
-        db.prepare(
-          "INSERT INTO project_execution_defaults (project_id, provider_id, model, service_tier, reasoning_level, permission_mode, updated_at) VALUES (?, 'acp-opencode', ?, 'default', 'high', 'full', ?)"
-        ).run(projId, modelId, now);
+        ).run(modelId, Date.now());
+        return Number(result.changes) > 0;
+      } finally {
+        db.close();
       }
-      db.close();
-      return true;
     } catch {
       return false;
     }
@@ -1115,7 +1118,7 @@ export default async function plugin(bb: BbPluginApi) {
     });
 
     const canonicalHostId =
-      hosts.find((h) => h.name.includes("Mini") || h.id === "host_7sea4qaad8")?.id ??
+      hosts.find((h) => h.name.includes("Mini"))?.id ??
       hosts[0]?.id ??
       null;
 
@@ -1947,7 +1950,7 @@ export default async function plugin(bb: BbPluginApi) {
 
     const srcId =
       args.sourceHostId ??
-      hostsList.find((h) => h.name.includes("Mini") || h.id === "host_7sea4qaad8")?.id ??
+      hostsList.find((h) => h.name.includes("Mini"))?.id ??
       hostsList[0]?.id;
 
     const sourceSnap = openCodeSnapshots.find((s) => s.hostId === srcId);

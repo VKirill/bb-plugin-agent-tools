@@ -163,7 +163,7 @@ OpenCode provider/model state is read from `~/.config/opencode/opencode.json` or
 
 ### BB SQLite preference row
 
-The plugin directly reads/writes the `project_execution_defaults` table in BB's `~/.bb/bb.db` for provider `acp-opencode`. It reads the model from the row with the greatest `updated_at`; writes update rows or insert one with model, provider, service tier, reasoning level, permission mode, and update timestamp (`server.ts:835-872`). This plugin does not define the table schema. The selection query reads `projects.id` to associate a newly inserted row (`server.ts:854-870`).
+The plugin directly reads/writes the `project_execution_defaults` table in BB's `bb.db` (found through `bb.server.experimental_dataDir`) for provider `acp-opencode`, using Node's built-in `node:sqlite` opened on demand (`openBbDb` in `server.ts`). It reads the model from the row with the greatest `updated_at`; writes only update existing `acp-opencode` rows and never insert one. Without `node:sqlite` or `bb.db` the feature turns itself off (read returns null, write returns false) and the rest of the plugin keeps running. This plugin does not define the table schema.
 
 ## Lifecycle and retention
 

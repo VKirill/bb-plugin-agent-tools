@@ -111,7 +111,7 @@ The sharp edges are concentrated in host file safety, skill ownership and hub-on
 
 **Risk:** CLI defaults and BB's new-chat default can differ.
 
-**Workaround:** Check `bbUpdated` in the action result and set the BB default after correcting the database access issue.
+**Workaround:** Check `bbUpdated` in the action result. It is also false when no BB project has chosen OpenCode yet (the plugin never inserts rows) or when the runtime has no `node:sqlite`; pick OpenCode in a project's BB settings once, then repeat.
 
 ### Skill archive listing is bounded, archive storage is not
 
