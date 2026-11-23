@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-agent-tools",
-  "version": "0.2.34",
+  "version": "0.2.35",
   "description": "One inventory of MCP servers and agent skills across every BB machine: what is connected where, what is missing, a single skills canon with fan-out, sync and a version archive.",
   "license": "MIT",
   "author": "Kirill Vechkasov",
@@ -59,7 +59,6 @@
     "@radix-ui/react-popover": "^1.1.19",
     "@radix-ui/react-select": "^2.3.3",
     "@radix-ui/react-tooltip": "^1.2.12",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

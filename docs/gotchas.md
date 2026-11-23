@@ -105,13 +105,13 @@ The sharp edges are concentrated in host file safety, skill ownership and hub-on
 
 **Workaround:** Review the competing versions and use the legacy adopt/take host operation only when that workflow is intentionally invoked (`host.ts:483-539`).
 
-### A successful OpenCode update can leave BB's default unchanged
+### Setting the OpenCode model does not change BB's new-chat default
 
-**Problem:** OpenCode host writes and BB database preference writes are separate operations; the BB write helper returns false on database errors (`host.ts:645-705`, `server.ts:2206-2244`).
+**Problem:** The action writes the OpenCode config on the machines only. BB's remembered model per project has no SDK writer, and the plugin does not open BB's database.
 
 **Risk:** CLI defaults and BB's new-chat default can differ.
 
-**Workaround:** Check `bbUpdated` in the action result. It is also false when no BB project has chosen OpenCode yet (the plugin never inserts rows) or when the runtime has no `node:sqlite`; pick OpenCode in a project's BB settings once, then repeat.
+**Workaround:** Pick the model once in BB's new-chat composer for the project; BB remembers it. "Now in BB" shows what BB has remembered.
 
 ### Skill archive listing is bounded, archive storage is not
 

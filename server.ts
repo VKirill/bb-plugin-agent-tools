@@ -433,13 +433,13 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       modelId: z.string(),
       smallModelId: z.string().optional(),
-      setAsBbDefault: z.boolean().default(true),
+      /** Ignored: BB remembers its default model itself. Kept for old clients. */
+      setAsBbDefault: z.boolean().optional(),
       setAsOpenCodeDefault: z.boolean().default(true),
     }),
     output: z.object({
       ok: z.boolean(),
       updatedHosts: z.number(),
-      bbUpdated: z.boolean(),
       overview: overviewSchema,
     }),
   },
@@ -867,47 +867,25 @@ export default async function plugin(bb: BbPluginApi) {
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  // BB's own database, opened lazily through Node's built-in SQLite so the plugin
-  // never fails to load on a runtime without it (issue #2). null = feature off.
-  function openBbDb(readOnly: boolean): import("node:sqlite").DatabaseSync | null {
-    const sqlite = process.getBuiltinModule?.("node:sqlite") as typeof import("node:sqlite") | undefined;
-    const dbPath = path.join(bb.server.experimental_dataDir, "bb.db");
-    if (!sqlite || !existsSync(dbPath)) return null;
-    return new sqlite.DatabaseSync(dbPath, { readOnly });
-  }
-
-  function getBbPreselectedModel(): string | null {
+  // The model BB preselects for OpenCode chats, read through the SDK: the most
+  // common model among projects whose remembered provider is OpenCode. BB
+  // remembers it itself when a chat is started from the composer; the plugin
+  // never opens BB's database.
+  async function getBbPreselectedModel(): Promise<string | null> {
     try {
-      const db = openBbDb(true);
-      if (!db) return null;
-      try {
-        const row = db.prepare(
-          "SELECT model FROM project_execution_defaults WHERE provider_id = 'acp-opencode' ORDER BY updated_at DESC LIMIT 1"
-        ).get() as { model: string } | undefined;
-        return row ? row.model : null;
-      } finally {
-        db.close();
+      const projects = await bb.sdk.projects.list();
+      const defaults = await Promise.all(
+        projects.map((p) =>
+          bb.sdk.projects.defaultExecutionOptions({ projectId: p.id }).catch(() => null),
+        ),
+      );
+      const counts = new Map<string, number>();
+      for (const d of defaults) {
+        if (d?.providerId === "acp-opencode" && d.model) counts.set(d.model, (counts.get(d.model) ?? 0) + 1);
       }
+      return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     } catch {
       return null;
-    }
-  }
-
-  // Only rewrites projects that already chose OpenCode in BB; never invents a row.
-  function setBbPreselectedModel(modelId: string): boolean {
-    try {
-      const db = openBbDb(false);
-      if (!db) return false;
-      try {
-        const result = db.prepare(
-          "UPDATE project_execution_defaults SET model = ?, updated_at = ? WHERE provider_id = 'acp-opencode'"
-        ).run(modelId, Date.now());
-        return Number(result.changes) > 0;
-      } finally {
-        db.close();
-      }
-    } catch {
-      return false;
     }
   }
 
@@ -1131,7 +1109,7 @@ export default async function plugin(bb: BbPluginApi) {
       canonicalHostId,
     );
 
-    const bbPreselected = getBbPreselectedModel();
+    const bbPreselected = await getBbPreselectedModel();
     const canonModel = openCodeHosts.find((h) => h.model)?.model ?? null;
     const canonSmall = openCodeHosts.find((h) => h.smallModel)?.smallModel ?? null;
 
@@ -2242,9 +2220,8 @@ export default async function plugin(bb: BbPluginApi) {
         };
       }
     },
-    opencode_set_default_model: async ({ modelId, smallModelId, setAsBbDefault, setAsOpenCodeDefault }) => {
+    opencode_set_default_model: async ({ modelId, smallModelId, setAsOpenCodeDefault }) => {
       let updatedHosts = 0;
-      let bbUpdated = false;
 
       if (setAsOpenCodeDefault) {
         const hostsList = await bb.sdk.hosts.list();
@@ -2270,14 +2247,9 @@ export default async function plugin(bb: BbPluginApi) {
         }
       }
 
-      if (setAsBbDefault) {
-        bbUpdated = setBbPreselectedModel(modelId);
-      }
-
       return {
         ok: true,
         updatedHosts,
-        bbUpdated,
         overview: await publish(),
       };
     },
@@ -2967,7 +2939,6 @@ export default async function plugin(bb: BbPluginApi) {
           if (!modelId) {
             return { exitCode: 1, stderr: t("Укажите id модели: bb tools opencode-set-default <modelId>") };
           }
-          const bbUpdated = setBbPreselectedModel(modelId);
           const hostsList = await bb.sdk.hosts.list();
           let hostsUpdated = 0;
           for (const m of hostsList.filter((c) => c.status === "connected")) {
@@ -2981,8 +2952,8 @@ export default async function plugin(bb: BbPluginApi) {
           await scanAll(null);
           await publish();
           return reply(
-            { modelId, bbUpdated, hostsUpdated },
-            tp("Предустановленная модель: {0} (BB: {1}, хосты: {2})", modelId, bbUpdated ? t("обновлено") : t("пропущено"), hostsUpdated),
+            { modelId, hostsUpdated },
+            tp("Модель OpenCode: {0} (хосты: {1})", modelId, hostsUpdated),
           );
         }
       }

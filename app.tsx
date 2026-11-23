@@ -3113,12 +3113,11 @@ function CatalogPage() {
     act(async () => {
       const result = await rpc.call("opencode_set_default_model", {
         modelId,
-        setAsBbDefault: true,
         setAsOpenCodeDefault: true,
       });
       setNotice(
         result.ok
-          ? tp("Предустановленная модель: {0} (BB: {1}, хосты: {2})", modelId, result.bbUpdated ? t("обновлено") : t("пропущено"), result.updatedHosts)
+          ? tp("Модель OpenCode: {0} (хосты: {1})", modelId, result.updatedHosts)
           : t("Не удалось установить модель"),
       );
       return result.overview;

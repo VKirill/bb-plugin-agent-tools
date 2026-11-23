@@ -27,6 +27,17 @@ test("server and host code import nothing a managed install lacks", () => {
   assert.deepEqual(bad, []);
 });
 
-test("node:sqlite is reachable without a flag on this runtime", () => {
-  assert.ok(process.getBuiltinModule?.("node:sqlite")?.DatabaseSync);
+// BB's database belongs to BB: a second SQLite connection inside the server
+// process (node:sqlite or another better-sqlite3 build) can drop the server's
+// file locks and corrupt it. Everything about BB goes through bb.sdk.
+test("plugin code never opens BB's own database", () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const isSource = (f: string) => f.endsWith(".ts") || f.endsWith(".tsx");
+  const files = [
+    ...readdirSync(root).filter(isSource),
+    ...readdirSync(path.join(root, "skill-suggest")).filter(isSource).map((f) => `skill-suggest/${f}`),
+  ];
+  const opensBbDb = /node:sqlite|better-sqlite3|DatabaseSync|["'`]bb\.db["'`]/;
+  const bad = files.filter((file) => opensBbDb.test(readFileSync(path.join(root, file), "utf8")));
+  assert.deepEqual(bad, []);
 });

@@ -161,9 +161,9 @@ Legacy skill snapshots live below `~/.agents/skills-backups/<name>/<timestamp>/`
 
 OpenCode provider/model state is read from `~/.config/opencode/opencode.json` or `opencode.jsonc`; provider fields include ID, display name, package, base URL, API-key-present flag, models, allowlist, and raw provider config (`host.ts:581-643`, `contract.ts:181-206`). JSONC with comments is read-only (`host.ts:593-604`, `host.ts:672-678`). File writes use the same adjacent backup and atomic-write helper (`host.ts:690-705`, `host.ts:228-270`).
 
-### BB SQLite preference row
+### BB's OpenCode preselection
 
-The plugin directly reads/writes the `project_execution_defaults` table in BB's `bb.db` (found through `bb.server.experimental_dataDir`) for provider `acp-opencode`, using Node's built-in `node:sqlite` opened on demand (`openBbDb` in `server.ts`). It reads the model from the row with the greatest `updated_at`; writes only update existing `acp-opencode` rows and never insert one. Without `node:sqlite` or `bb.db` the feature turns itself off (read returns null, write returns false) and the rest of the plugin keeps running. This plugin does not define the table schema.
+The plugin never opens BB's database. "Now in BB" is read through the SDK: `bb.sdk.projects.list()` and `bb.sdk.projects.defaultExecutionOptions({ projectId })` for each project; the most common model among projects whose remembered provider is `acp-opencode` is shown (`getBbPreselectedModel` in `server.ts`). The plugin does not write it: the SDK has no writer, and BB remembers a project's provider and model itself when a chat is started from the new-chat composer.
 
 ## Lifecycle and retention
 
